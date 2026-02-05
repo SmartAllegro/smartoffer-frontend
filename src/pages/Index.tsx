@@ -219,7 +219,7 @@ export default function Index() {
             </div>
             <div className="flex items-center justify-between gap-4">
               <p className="text-muted-foreground">
-                Быстрый поиск поставщиков и отправка запросов КП
+                Быстрый поиск поставщиков 
               </p>
             </div>
           </div>
