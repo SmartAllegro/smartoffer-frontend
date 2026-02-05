@@ -1,49 +1,52 @@
-// Unified API layer - switches between mock and real based on config
-import { Supplier } from '@/types/rfq';
-import { getApiMode } from './apiConfig';
-import { searchSuppliers as searchSuppliersMock, sendRFQ as sendRFQMock } from './mockApi';
-import { searchSuppliersReal, sendRFQReal, isRealApiConfigured } from './smartofferApi';
+// src/lib/api.ts
+import { apiFetch } from "@/api/client";
+import { Supplier } from "@/types/rfq";
+
+
+/* =======================
+   SEARCH SUPPLIERS
+   ======================= */
 
 export async function searchSuppliers(
-  equipmentName: string,
+  query: string,
   requestId: string
 ): Promise<Supplier[]> {
-  const mode = getApiMode();
-  
-  if (mode === 'real') {
-    if (!isRealApiConfigured()) {
-      throw new Error('Real API РЅРµ РЅР°СЃС‚СЂРѕРµРЅ. Р”РѕР±Р°РІСЊС‚Рµ VITE_SMARTOFFER_API_KEY.');
-    }
-    return searchSuppliersReal(equipmentName, requestId);
-  }
-  
-  return searchSuppliersMock(equipmentName, requestId);
+  const response = await apiFetch<{
+    results: {
+      title: string;
+      url: string;
+      domain: string;
+      emails: string[];
+      score: number;
+    }[];
+  }>("/search", {
+    method: "POST",
+    json: {
+      query,
+      lang: "ru",
+      top_k: 10,
+      enrich_emails: true,
+    },
+  });
+
+  return response.results.map((item, index) => ({
+    id: `${requestId}-${index}`,
+    request_id: requestId,
+    supplier_name: item.title,
+    contact: item.emails?.[0] || "",
+    source_url: item.url,
+    selected: true,
+    status: "found",
+    score: item.score,
+    created_at: new Date(),
+  }));
 }
 
-interface SendResult {
-  status: 'sent' | 'error';
-  error_message?: string;
-  error_details?: string;
-  error_code?: string;
-}
+/* =======================
+   SEND RFQ (stub пока)
+   ======================= */
 
-export async function sendRFQ(
-  requestId: string,
-  rfqText: string,
-  emailSubject: string,
-  suppliers: Supplier[]
-): Promise<Map<string, SendResult>> {
-  const mode = getApiMode();
-  
-  if (mode === 'real') {
-    if (!isRealApiConfigured()) {
-      throw new Error('Real API РЅРµ РЅР°СЃС‚СЂРѕРµРЅ. Р”РѕР±Р°РІСЊС‚Рµ VITE_SMARTOFFER_API_KEY.');
-    }
-    return sendRFQReal(requestId, rfqText, emailSubject, suppliers);
-  }
-  
-  return sendRFQMock(requestId, rfqText, emailSubject, suppliers);
+export async function sendRFQ() {
+  // заглушка, чтобы UI не падал
+  return new Map();
 }
-
-export { getApiMode, setApiMode, toggleApiMode, type ApiMode } from './apiConfig';
-export { isRealApiConfigured } from './smartofferApi';

@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+﻿import { useState, useCallback, useEffect, useMemo } from 'react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { InputBlock } from '@/components/InputBlock';
 import { SupplierTable } from '@/components/SupplierTable';
 import { Footer } from '@/components/Footer';
 import { HistoryModal } from '@/components/HistoryModal';
-import { ApiModeToggle } from '@/components/ApiModeToggle';
+import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/components/SettingsModal';
 import { Button } from '@/components/ui/button';
 import { History } from 'lucide-react';
 import { RequestStatus, Supplier } from '@/types/rfq';
@@ -12,6 +12,17 @@ import { searchSuppliers, sendRFQ } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { useRequestHistory } from '@/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from '@/lib/tenantContext';
+
+function loadTemplate(): string {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_TEMPLATE;
+    const parsed = JSON.parse(raw);
+    return typeof parsed.template === "string" ? parsed.template : DEFAULT_TEMPLATE;
+  } catch {
+    return DEFAULT_TEMPLATE;
+  }
+}
 
 export default function Index() {
   const [equipmentName, setEquipmentName] = useState('');
@@ -21,6 +32,7 @@ export default function Index() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [requestId, setRequestId] = useState<string>('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { toast } = useToast();
   const { history, addRequest, updateRequest } = useRequestHistory();
 
@@ -38,6 +50,14 @@ export default function Index() {
     }
   }, [equipmentName]);
 
+  // Auto-fill template when rfqText is empty
+  useEffect(() => {
+    if (!rfqText.trim()) {
+      setRfqText(loadTemplate());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const selectedCount = suppliers.filter((s) => s.selected).length;
 
   const handleSearch = useCallback(async () => {
@@ -50,7 +70,7 @@ export default function Index() {
       const results = await searchSuppliers(equipmentName, newRequestId);
       setSuppliers(results);
       setStatus('search_completed');
-      
+
       // Save request to history with tenant context
       addRequest({
         id: newRequestId,
@@ -62,7 +82,7 @@ export default function Index() {
         organization_id: CURRENT_ORGANIZATION_ID,
         created_by_user_id: CURRENT_USER_ID,
       });
-      
+
       toast({
         title: 'Поставщики найдены',
         description: `Найдено ${results.length} потенциальных поставщиков для "${equipmentName}"`,
@@ -79,7 +99,7 @@ export default function Index() {
 
   const handleSend = useCallback(async () => {
     const selectedSuppliers = suppliers.filter((s) => s.selected && s.status === 'found');
-    
+
     if (selectedSuppliers.length === 0) {
       toast({
         title: 'Поставщики не выбраны',
@@ -93,7 +113,7 @@ export default function Index() {
 
     try {
       const results = await sendRFQ(requestId, rfqText, emailSubject, selectedSuppliers);
-      
+
       setSuppliers((prev) =>
         prev.map((supplier) => {
           const result = results.get(supplier.id);
@@ -114,14 +134,14 @@ export default function Index() {
       const errorCount = Array.from(results.values()).filter((r) => r.status === 'error').length;
 
       setStatus('completed');
-      
+
       // Update request in history
       updateRequest(requestId, {
         status: 'completed',
         sent_at: new Date(),
         recipients_count: sentCount,
       });
-      
+
       toast({
         title: 'Запрос отправлен',
         description: `Успешно отправлено ${sentCount} поставщикам${errorCount > 0 ? `, ${errorCount} с ошибкой` : ''}`,
@@ -136,7 +156,7 @@ export default function Index() {
         variant: 'destructive',
       });
     }
-  }, [suppliers, requestId, rfqText, toast, updateRequest]);
+  }, [suppliers, requestId, rfqText, emailSubject, toast, updateRequest]);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSuppliers((prev) =>
@@ -162,7 +182,7 @@ export default function Index() {
       created_by_user_id: CURRENT_USER_ID,
     };
     setSuppliers((prev) => [...prev, newSupplier]);
-    
+
     if (status === 'idle') {
       setStatus('search_completed');
     }
@@ -182,7 +202,7 @@ export default function Index() {
                 Smartoffer.pro
               </h1>
             </div>
-            
+
             {/* Title and Controls */}
             <div className="flex items-start justify-between gap-4 mb-3">
               <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">
@@ -201,7 +221,6 @@ export default function Index() {
               <p className="text-muted-foreground">
                 Быстрый поиск поставщиков и отправка запросов КП
               </p>
-              <ApiModeToggle />
             </div>
           </div>
 
@@ -212,7 +231,7 @@ export default function Index() {
                 <p className="text-sm font-medium text-foreground">Давид Дзусов</p>
                 <p className="text-sm text-muted-foreground">dbd@smart-marine.su</p>
               </div>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
                 Настройки
               </Button>
             </div>
@@ -255,14 +274,19 @@ export default function Index() {
           </div>
         </div>
       </div>
-      
+
       <Footer />
-      
+
       <HistoryModal
         open={historyOpen}
         onOpenChange={setHistoryOpen}
         history={filteredHistory}
       />
+
+      <SettingsModal
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
     </div>
   );
-}
+}
