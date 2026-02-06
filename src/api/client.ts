@@ -1,18 +1,15 @@
 // src/api/client.ts
-export const API_BASE_URL =
-  (import.meta as any).env?.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+import { API_BASE_URL } from "@/config/env";
+import { getApiKey } from "@/features/settings/storage/settingsStorage";
 
-export const API_KEY = (import.meta as any).env?.VITE_API_KEY ?? "";
-
-type ApiFetchInit = RequestInit & { json?: unknown };
-
-export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit & { json?: unknown } = {}
+): Promise<T> {
   const headers = new Headers(init.headers);
 
-  // Если ключ не задан — не отправляем заголовок вообще
-  if (API_KEY && API_KEY.trim().length > 0) {
-    headers.set("X-API-Key", API_KEY.trim());
-  }
+  const apiKey = getApiKey();
+  if (apiKey) headers.set("X-API-Key", apiKey);
 
   if (init.json !== undefined) {
     headers.set("Content-Type", "application/json");
@@ -26,7 +23,7 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `HTTP ${res.status} ${res.statusText}`);
+    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
   }
 
   return (await res.json()) as T;

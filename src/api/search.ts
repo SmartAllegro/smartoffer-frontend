@@ -1,3 +1,4 @@
+// src/api/search.ts
 import { apiFetch } from "./client";
 
 export type SupplierResult = {
