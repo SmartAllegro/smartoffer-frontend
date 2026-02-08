@@ -1,6 +1,6 @@
 // src/lib/api.ts
 import { apiFetch } from "@/api/client";
-import { Supplier } from "@/types/rfq";
+import { Supplier } from "@/shared/types/rfq";
 
 
 /* =======================

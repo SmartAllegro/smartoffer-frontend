@@ -1,4 +1,4 @@
-import { RequestStatus } from '@/types/rfq';
+﻿import { RequestStatus } from '@/shared/types/rfq';
 import { Loader2, CheckCircle2, AlertCircle, Search, Circle } from 'lucide-react';
 
 interface StatusBadgeProps {

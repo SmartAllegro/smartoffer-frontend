@@ -1,9 +1,9 @@
-﻿import { Button } from '@ui/button';
-import { Input } from '@ui/input';
-import { Textarea } from '@ui/textarea';
-import { Label } from '@ui/label';
+﻿import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Textarea } from '@/shared/ui/textarea';
+import { Label } from '@/shared/ui/label';
 import { Search, ArrowRightLeft, Loader2 } from 'lucide-react';
-import { RequestStatus } from '@/types/rfq';
+import { RequestStatus } from '@/shared/types/rfq';
 
 interface InputBlockProps {
   equipmentName: string;

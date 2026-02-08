@@ -1,7 +1,7 @@
 ﻿import { useState } from 'react';
-import { Supplier } from '@/types/rfq';
-import { Button } from '@ui/button';
-import { Checkbox } from '@ui/checkbox';
+import { Supplier } from '@/shared/types/rfq';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -9,20 +9,20 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@ui/table';
+} from '@/shared/ui/table';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from '@ui/dialog';
+} from '@/shared/ui/dialog';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '@ui/collapsible';
+} from '@/shared/ui/collapsible';
 import { Trash2, Plus, CheckCircle2, AlertCircle, Info, ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/utils/utils';
 
 interface SupplierTableProps {
   suppliers: Supplier[];

@@ -3,13 +3,13 @@ import { StatusBadge } from '@/features/search/components/StatusBadge';
 import { InputBlock } from '@/features/search/components/InputBlock';
 import { SupplierTable } from '@/features/search/components/SupplierTable';
 import { Footer } from '@/features/search/components/Footer';
-import { HistoryModal } from '@/features/search/components/HistoryModal';
-import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/search/components/SettingsModal';
-import { Button } from '@/features/search/components/ui/button';
+import { HistoryModal } from "@/features/history/components/HistoryModal";
+import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
+import { Button } from '@/shared/ui/button';
 import { History } from 'lucide-react';
-import { RequestStatus, Supplier } from '@/types/rfq';
+import { RequestStatus, Supplier } from '@/shared/types/rfq';
 import { searchSuppliers, sendRFQ } from '@/lib/api';
-import { useToast } from '@/features/search/hooks/use-toast';
+import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from '@/lib/tenantContext';
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RFQRequest } from '@/types/rfq';
+import { RFQRequest } from '@/shared/types/rfq';
 
 const STORAGE_KEY = 'rfq_request_history';
 
