@@ -1,5 +1,5 @@
-import { Supplier } from '@/shared/types/rfq';
-import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from '@/lib/tenantContext';
+﻿import { Supplier } from '@/shared/types/rfq';
+import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from '@/shared/utils/tenant';
 
 const BASE_URL = 'https://api.smartoffer.pro';
 

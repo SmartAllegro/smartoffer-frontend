@@ -1,31 +1,44 @@
-import { ENV } from "@/config/env";
+import { env } from "@/config/env";
 
-export const API_BASE_URL = ENV.API_BASE_URL;
-export const API_KEY = ENV.API_KEY;
+export type ApiError = {
+  message: string;
+  status?: number;
+  details?: unknown;
+};
 
-type ApiFetchInit = RequestInit & { json?: unknown };
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const url = `${env.apiBaseUrl}${path}`;
 
-export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-
-  if (API_KEY && API_KEY.trim().length > 0) {
-    headers.set("X-API-Key", API_KEY.trim());
-  }
-
-  if (init.json !== undefined) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(url, {
     ...init,
-    headers,
-    body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
   });
 
+  const text = await res.text();
+  const data = text ? safeJsonParse(text) : null;
+
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `HTTP ${res.status} ${res.statusText}`);
+    const err: ApiError = {
+      message: (data as any)?.message || `API error: ${res.status}`,
+      status: res.status,
+      details: data,
+    };
+    throw err;
   }
 
-  return (await res.json()) as T;
+  return data as T;
+}
+
+function safeJsonParse(input: string) {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return input;
+  }
 }

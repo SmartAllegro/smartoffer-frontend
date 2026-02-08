@@ -1,32 +1,20 @@
-// src/api/search.ts
-import { apiFetch } from "./client";
+import { apiFetch } from "@/api/client";
+import { getTenant } from "@/shared/utils/tenant";
 
-export type SupplierResult = {
-  title: string;
-  url: string;
-  domain: string;
-  snippet?: string;
-  emails: string[];
-  score: number;
+export type SupplierRow = {
+  name: string;
+  email?: string;
+  website?: string;
+  status?: "found" | "sent" | "error";
+  errorReason?: string;
 };
 
 export type SearchResponse = {
-  query: string;
-  provider: string;
-  results: SupplierResult[];
-  meta: {
-    count: number;
-    lang: string;
-    time_ms: number;
-    provider_chain: string[];
-    pages_scanned: Record<string, number>;
-    page_caps: Record<string, number>;
-  };
+  suppliers: SupplierRow[];
 };
 
 export async function searchSuppliers(query: string): Promise<SearchResponse> {
-  return apiFetch<SearchResponse>("/search", {
-    method: "POST",
-    json: { query, lang: "ru" },
-  });
+  const tenant = getTenant();
+  // подстрой путь под свой бэкенд
+  return apiFetch<SearchResponse>(`/search?tenant=${encodeURIComponent(tenant)}&q=${encodeURIComponent(query)}`);
 }
