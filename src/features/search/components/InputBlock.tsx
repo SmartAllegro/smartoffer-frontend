@@ -1,7 +1,7 @@
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+﻿import { Button } from '@ui/button';
+import { Input } from '@ui/input';
+import { Textarea } from '@ui/textarea';
+import { Label } from '@ui/label';
 import { Search, ArrowRightLeft, Loader2 } from 'lucide-react';
 import { RequestStatus } from '@/types/rfq';
 

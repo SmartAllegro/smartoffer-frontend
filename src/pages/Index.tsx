@@ -1,16 +1,16 @@
 ﻿import { useState, useCallback, useEffect, useMemo } from 'react';
-import { StatusBadge } from '@/components/StatusBadge';
-import { InputBlock } from '@/components/InputBlock';
-import { SupplierTable } from '@/components/SupplierTable';
-import { Footer } from '@/components/Footer';
-import { HistoryModal } from '@/components/HistoryModal';
-import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/components/SettingsModal';
-import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/features/search/components/StatusBadge';
+import { InputBlock } from '@/features/search/components/InputBlock';
+import { SupplierTable } from '@/features/search/components/SupplierTable';
+import { Footer } from '@/features/search/components/Footer';
+import { HistoryModal } from '@/features/search/components/HistoryModal';
+import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/search/components/SettingsModal';
+import { Button } from '@/features/search/components/ui/button';
 import { History } from 'lucide-react';
 import { RequestStatus, Supplier } from '@/types/rfq';
 import { searchSuppliers, sendRFQ } from '@/lib/api';
-import { useToast } from '@/hooks/use-toast';
-import { useRequestHistory } from '@/hooks/useRequestHistory';
+import { useToast } from '@/features/search/hooks/use-toast';
+import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from '@/lib/tenantContext';
 
 function loadTemplate(): string {

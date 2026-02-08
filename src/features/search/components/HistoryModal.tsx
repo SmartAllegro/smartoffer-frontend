@@ -1,13 +1,13 @@
-import { useState, useMemo } from 'react';
+﻿import { useState, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
+} from '@ui/dialog';
+import { Input } from '@ui/input';
+import { Button } from '@ui/button';
+import { ScrollArea } from '@ui/scroll-area';
 import { Search, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { RFQRequest, RequestStatus } from '@/types/rfq';
 import { format } from 'date-fns';

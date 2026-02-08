@@ -1,7 +1,7 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Supplier } from '@/types/rfq';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@ui/button';
+import { Checkbox } from '@ui/checkbox';
 import {
   Table,
   TableBody,
@@ -9,18 +9,18 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from '@ui/table';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from '@ui/dialog';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+} from '@ui/collapsible';
 import { Trash2, Plus, CheckCircle2, AlertCircle, Info, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
