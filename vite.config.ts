@@ -3,14 +3,12 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
-  base: "/", // ÎÁßÇÀÒÅËÜÍÎ äëÿ smartoffer.pro
+  base: "/smartoffer-frontend/",
 
   server: {
     host: "localhost",
     port: 8080,
-    hmr: {
-      overlay: false,
-    },
+    hmr: { overlay: false },
   },
 
   plugins: [react()],
