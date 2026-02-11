@@ -10,12 +10,16 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Для GitHub Pages repo-пути /smartoffer-frontend
+const BASENAME =
+  (import.meta as any).env?.VITE_ROUTER_BASENAME ?? "/smartoffer-frontend";
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter basename={BASENAME}>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="*" element={<NotFound />} />
