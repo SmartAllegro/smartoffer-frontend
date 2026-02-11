@@ -8,10 +8,10 @@ import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/setting
 import { Button } from '@/shared/ui/button';
 import { History } from 'lucide-react';
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
-import { searchSuppliers, sendRFQ } from '@/lib/api';
+import { searchSuppliers } from "@/api/search";
 import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
-import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from '@/lib/tenantContext';
+import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from "@/shared/utils/tenant";
 
 function loadTemplate(): string {
   try {
@@ -289,4 +289,4 @@ export default function Index() {
       />
     </div>
   );
-}
+}

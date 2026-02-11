@@ -1,20 +1,38 @@
-import { apiFetch } from "@/api/client";
-import { getTenant } from "@/shared/utils/tenant";
+// src/api/search.ts
+import { apiFetch } from "./client";
+import { Supplier } from "@/shared/types/rfq";
 
-export type SupplierRow = {
-  name: string;
-  email?: string;
-  website?: string;
-  status?: "found" | "sent" | "error";
-  errorReason?: string;
+type BackendResult = {
+  title: string;
+  url: string;
+  domain: string;
+  snippet?: string;
+  emails: string[];
+  score: number;
 };
 
-export type SearchResponse = {
-  suppliers: SupplierRow[];
+type BackendResponse = {
+  results: BackendResult[];
 };
 
-export async function searchSuppliers(query: string): Promise<SearchResponse> {
-  const tenant = getTenant();
-  // подстрой путь под свой бэкенд
-  return apiFetch<SearchResponse>(`/search?tenant=${encodeURIComponent(tenant)}&q=${encodeURIComponent(query)}`);
+export async function searchSuppliers(query: string, requestId: string): Promise<Supplier[]> {
+  const response = await apiFetch<BackendResponse>("/search", {
+    method: "POST",
+    json: {
+      query,
+      lang: "ru",
+      top_k: 10,
+      enrich_emails: true,
+    },
+  });
+
+  return (response.results || []).map((item, index) => ({
+    id: `${requestId}-${index}`,
+    request_id: requestId,
+    supplier_name: item.title || item.domain || "—",
+    contact: item.emails?.[0] || "",
+    source_url: item.url || "",
+    selected: false,
+    status: "found",
+  }));
 }
