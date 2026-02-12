@@ -4,17 +4,17 @@ import path from "path";
 
 export default defineConfig({
   // Для кастомного домена (smartoffer.pro) нужно "/"
-  // Для GitHub Pages вида smartallegro.github.io/smartoffer-frontend/ нужно "/smartoffer-frontend/"
-  // Чтобы работало в обоих вариантах без ручных правок — используем "./"
-  base: "./",
+  // Для GitHub Pages по пути /smartoffer-frontend/ — нужно "/smartoffer-frontend/"
+  // Мы делаем авто-режим: если есть VITE_PAGES_BASE, используем его, иначе "/"
+  base: process.env.VITE_PAGES_BASE || "/",
+
+  plugins: [react()],
 
   server: {
     host: "localhost",
     port: 8080,
     hmr: { overlay: false },
   },
-
-  plugins: [react()],
 
   resolve: {
     alias: {
