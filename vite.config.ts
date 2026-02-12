@@ -3,17 +3,17 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default defineConfig({
-  base: "/",   // ВАЖНО
+  // Для кастомного домена (https://smartoffer.pro) нужно "/"
+  // Для GitHub Pages с путём /smartoffer-frontend/ было бы "/smartoffer-frontend/"
+  base: "/",
+
   plugins: [react()],
-})
 
   server: {
     host: "localhost",
     port: 8080,
     hmr: { overlay: false },
   },
-
-  plugins: [react()],
 
   resolve: {
     alias: {
