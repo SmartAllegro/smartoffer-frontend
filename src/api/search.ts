@@ -21,8 +21,10 @@ export async function searchSuppliers(query: string, requestId: string): Promise
     json: {
       query,
       lang: "ru",
-      top_k: 10,
+      top_k: 20,
       enrich_emails: true,
+      yandex_pages_cap: 5,
+      ddg_pages_cap: 3,
     },
   });
 
