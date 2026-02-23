@@ -13,6 +13,14 @@ import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from "@/shared/utils/tenant";
 
+// NEW: auth
+import { AuthModal } from "@/features/auth/components/AuthModal";
+import { fetchMe, type UserMe } from "@/api/auth";
+import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
+
+// NEW: mail
+import { sendRFQ } from "@/api/mail";
+
 function loadTemplate(): string {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -31,10 +39,18 @@ export default function Index() {
   const [status, setStatus] = useState<RequestStatus>('idle');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [requestId, setRequestId] = useState<string>('');
+
+  // ВАЖНО: это настоящий job_id с бэка (число), нужен для /email/send и /history/{id}
+  const [searchJobId, setSearchJobId] = useState<number | null>(null);
+
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { toast } = useToast();
   const { history, addRequest, updateRequest } = useRequestHistory();
+
+  // NEW: auth state
+  const [authOpen, setAuthOpen] = useState(false);
+  const [me, setMe] = useState<UserMe | null>(null);
 
   // Filter history by current organization (scaffolding for multi-tenant)
   const filteredHistory = useMemo(() => {
@@ -58,6 +74,19 @@ export default function Index() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // NEW: fetch /auth/me if token exists
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
+
+    fetchMe()
+      .then(setMe)
+      .catch(() => {
+        clearAuthToken();
+        setMe(null);
+      });
+  }, []);
+
   const selectedCount = suppliers.filter((s) => s.selected).length;
 
   const handleSearch = useCallback(async () => {
@@ -65,10 +94,13 @@ export default function Index() {
     setRequestId(newRequestId);
     setStatus('searching');
     setSuppliers([]);
+    setSearchJobId(null);
 
     try {
-      const results = await searchSuppliers(equipmentName, newRequestId);
-      setSuppliers(results);
+      const { jobId, suppliers: foundSuppliers } = await searchSuppliers(equipmentName, newRequestId);
+
+      setSuppliers(foundSuppliers);
+      setSearchJobId(jobId);
       setStatus('search_completed');
 
       // Save request to history with tenant context
@@ -85,7 +117,7 @@ export default function Index() {
 
       toast({
         title: 'Поставщики найдены',
-        description: `Найдено ${results.length} потенциальных поставщиков для "${equipmentName}"`,
+        description: `Найдено ${foundSuppliers.length} потенциальных поставщиков для "${equipmentName}"`,
       });
     } catch (error) {
       setStatus('error');
@@ -109,10 +141,29 @@ export default function Index() {
       return;
     }
 
+    // ВАЖНО: отправка по результатам поиска возможна только при наличии backend job_id
+    // Если выбраны только manual (у них backend_result_id нет) — job_id можно не требовать
+    const hasNonManual = selectedSuppliers.some((s) => typeof s.backend_result_id === "number");
+    if (hasNonManual && !searchJobId) {
+      toast({
+        title: 'Не найден ID поиска',
+        description: 'Не удалось определить job_id бэкенда. Повторите поиск и попробуйте снова.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setStatus('sending');
 
     try {
-      const results = await sendRFQ(requestId, rfqText, emailSubject, selectedSuppliers);
+      // ✅ ПРАВИЛЬНО:
+      // sendRFQ(search_job_id:number, subject:string, body:string, suppliers:Supplier[])
+      const results = await sendRFQ(
+        searchJobId ?? 0,
+        emailSubject,
+        rfqText,
+        selectedSuppliers
+      );
 
       setSuppliers((prev) =>
         prev.map((supplier) => {
@@ -156,7 +207,7 @@ export default function Index() {
         variant: 'destructive',
       });
     }
-  }, [suppliers, requestId, rfqText, emailSubject, toast, updateRequest]);
+  }, [suppliers, requestId, rfqText, emailSubject, toast, updateRequest, searchJobId]);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSuppliers((prev) =>
@@ -190,6 +241,12 @@ export default function Index() {
 
   const isProcessing = status === 'searching' || status === 'sending';
 
+  const displayName = useMemo(() => {
+    if (!me) return "Гость";
+    const n = `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim();
+    return n || me.email;
+  }, [me]);
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <div className="flex-1 p-4 sm:p-6 lg:p-8">
@@ -219,21 +276,43 @@ export default function Index() {
             </div>
             <div className="flex items-center justify-between gap-4">
               <p className="text-muted-foreground">
-                Быстрый поиск поставщиков 
+                Быстрый поиск поставщиков
               </p>
             </div>
           </div>
 
-          {/* Authorization Block (Visual Only) */}
+          {/* Authorization Block (REAL) */}
           <div className="bg-card border border-border rounded-lg p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Давид Дзусов</p>
-                <p className="text-sm text-muted-foreground">dbd@smart-marine.su</p>
+                <p className="text-sm font-medium text-foreground">{displayName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {me ? me.email : "Войдите или зарегистрируйтесь"}
+                </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-                Настройки
-              </Button>
+
+              <div className="flex items-center gap-2">
+                {!me ? (
+                  <Button variant="outline" size="sm" onClick={() => setAuthOpen(true)}>
+                    Войти / Регистрация
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      clearAuthToken();
+                      setMe(null);
+                    }}
+                  >
+                    Выйти
+                  </Button>
+                )}
+
+                <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+                  Настройки
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -275,7 +354,7 @@ export default function Index() {
         </div>
       </div>
 
-      <Footer />
+      <Footer onOpenEmailVerification={() => setSettingsOpen(true)} />
 
       <HistoryModal
         open={historyOpen}
@@ -286,6 +365,13 @@ export default function Index() {
       <SettingsModal
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+      />
+
+      {/* NEW: Auth modal */}
+      <AuthModal
+        open={authOpen}
+        onOpenChange={setAuthOpen}
+        onAuthed={(u) => setMe(u)}
       />
     </div>
   );

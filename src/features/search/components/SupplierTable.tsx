@@ -2,6 +2,7 @@
 import { Supplier } from "@/shared/types/rfq";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
+import { Input } from "@/shared/ui/input";
 import {
   Table,
   TableBody,
@@ -37,13 +38,15 @@ interface SupplierTableProps {
   onDelete: (id: string) => void;
   onAdd: (email: string) => void;
   disabled?: boolean;
+
+  /** NEW: просмотр из истории (без выбора/удаления/ручного добавления) */
+  readOnly?: boolean;
 }
 
 function safeHostLabel(rawUrl?: string): string {
   const u = (rawUrl ?? "").trim();
   if (!u || u === "#") return "—";
 
-  // Если это не абсолютный URL, покажем как есть (без падения)
   if (!/^https?:\/\//i.test(u)) {
     return u.replace(/^\/+/, "").split("/")[0] || "—";
   }
@@ -51,7 +54,6 @@ function safeHostLabel(rawUrl?: string): string {
   try {
     return new URL(u).hostname || "—";
   } catch {
-    // На случай кривых строк
     return u.replace(/^https?:\/\//i, "").split("/")[0] || "—";
   }
 }
@@ -60,6 +62,13 @@ function safeHref(rawUrl?: string): string {
   const u = (rawUrl ?? "").trim();
   if (!u) return "#";
   return u;
+}
+
+function isValidEmail(email: string): boolean {
+  const v = (email || "").trim();
+  if (!v) return false;
+  // Практичная валидация (без чрезмерной строгости)
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
 function SupplierStatusBadge({
@@ -131,7 +140,9 @@ function ErrorModal({
             <p className="text-foreground font-medium">
               {supplier.supplier_name || "—"}
             </p>
-            <p className="text-sm text-muted-foreground">{supplier.contact || "—"}</p>
+            <p className="text-sm text-muted-foreground">
+              {supplier.contact || "—"}
+            </p>
           </div>
 
           {supplier.error_code && (
@@ -178,16 +189,100 @@ function ErrorModal({
   );
 }
 
+function AddManualEmailModal({
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (email: string) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [touched, setTouched] = useState(false);
+
+  const normalized = email.trim();
+  const ok = isValidEmail(normalized);
+
+  const close = (v: boolean) => {
+    onOpenChange(v);
+    if (!v) {
+      setEmail("");
+      setTouched(false);
+    }
+  };
+
+  const submit = () => {
+    setTouched(true);
+    if (!ok) return;
+    onConfirm(normalized);
+    close(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="sm:max-w-md bg-card border-border">
+        <DialogHeader>
+          <DialogTitle className="text-foreground">
+            Добавить поставщика вручную
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Введите email поставщика
+            </p>
+            <Input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => setTouched(true)}
+              placeholder="example@company.ru"
+              className={cn(
+                "bg-muted/30",
+                touched && !ok && "border-destructive focus-visible:ring-destructive"
+              )}
+              autoFocus
+              inputMode="email"
+              autoComplete="email"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submit();
+              }}
+            />
+            {touched && !ok && (
+              <p className="text-xs text-destructive">
+                Укажите корректный email (например, name@company.ru)
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => close(false)}>
+              Отмена
+            </Button>
+            <Button onClick={submit} disabled={!ok}>
+              Добавить
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SupplierTable({
   suppliers,
   onToggleSelect,
   onDelete,
   onAdd,
   disabled = false,
+  readOnly = false,
 }: SupplierTableProps) {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
     useState<Supplier | null>(null);
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
   const handleShowError = (supplier: Supplier) => {
     setSelectedErrorSupplier(supplier);
@@ -211,7 +306,7 @@ export function SupplierTable({
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
-              <TableHead className="w-12" />
+              {!readOnly && <TableHead className="w-12" />}
               <TableHead className="text-muted-foreground font-normal">
                 Поставщик
               </TableHead>
@@ -224,7 +319,7 @@ export function SupplierTable({
               <TableHead className="text-muted-foreground font-normal">
                 Статус
               </TableHead>
-              <TableHead className="w-12" />
+              {!readOnly && <TableHead className="w-12" />}
             </TableRow>
           </TableHeader>
 
@@ -242,14 +337,16 @@ export function SupplierTable({
                     supplier.status === "error" && "table-row-error"
                   )}
                 >
-                  <TableCell>
-                    <Checkbox
-                      checked={!!supplier.selected}
-                      onCheckedChange={() => onToggleSelect(supplier.id)}
-                      disabled={disabled || supplier.status === "sent"}
-                      className="border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                    />
-                  </TableCell>
+                  {!readOnly && (
+                    <TableCell>
+                      <Checkbox
+                        checked={!!supplier.selected}
+                        onCheckedChange={() => onToggleSelect(supplier.id)}
+                        disabled={disabled || supplier.status === "sent"}
+                        className="border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                      />
+                    </TableCell>
+                  )}
 
                   <TableCell className="font-medium text-foreground">
                     {supplier.supplier_name || "—"}
@@ -287,17 +384,21 @@ export function SupplierTable({
                     />
                   </TableCell>
 
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onDelete(supplier.id)}
-                      disabled={disabled}
-                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
+                  {!readOnly && (
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(supplier.id)}
+                        disabled={disabled}
+                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        title="Удалить"
+                        aria-label="Удалить"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
@@ -305,23 +406,25 @@ export function SupplierTable({
         </Table>
       </div>
 
-      {/* Add supplier manually */}
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          onClick={() => {
-            const email = prompt("Введите email поставщика:");
-            if (email && email.includes("@")) {
-              onAdd(email.trim());
-            }
-          }}
-          disabled={disabled}
-          className="border-border text-foreground hover:bg-muted"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Добавить вручную
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setAddModalOpen(true)}
+            disabled={disabled}
+            className="border-border text-foreground hover:bg-muted"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Добавить вручную
+          </Button>
+        </div>
+      )}
+
+      <AddManualEmailModal
+        open={addModalOpen}
+        onOpenChange={setAddModalOpen}
+        onConfirm={(email) => onAdd(email)}
+      />
 
       <ErrorModal
         open={errorModalOpen}

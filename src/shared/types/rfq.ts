@@ -1,6 +1,12 @@
-export type RequestStatus = 'idle' | 'searching' | 'search_completed' | 'sending' | 'completed' | 'error';
+﻿export type RequestStatus =
+  | "idle"
+  | "searching"
+  | "search_completed"
+  | "sending"
+  | "completed"
+  | "error";
 
-export type SupplierStatus = 'found' | 'sent' | 'error';
+export type SupplierStatus = "found" | "sent" | "error";
 
 export interface RFQRequest {
   id: string;
@@ -11,9 +17,11 @@ export interface RFQRequest {
   created_at: Date;
   sent_at?: Date;
   recipients_count?: number;
-  // Multi-tenant scaffolding (nullable for backward compatibility)
   organization_id?: string;
   created_by_user_id?: string;
+
+  // связь с бэкендом
+  backend_job_id?: number;
 }
 
 export interface Supplier {
@@ -28,7 +36,9 @@ export interface Supplier {
   error_message?: string;
   error_details?: string;
   error_code?: string;
-  // Multi-tenant scaffolding (nullable for backward compatibility)
   organization_id?: string;
   created_by_user_id?: string;
+
+  // связь с бэкендом (SearchResult.id)
+  backend_result_id?: number;
 }
