@@ -283,38 +283,49 @@ export default function Index() {
 
           {/* Authorization Block (REAL) */}
           <div className="bg-card border border-border rounded-lg p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">{displayName}</p>
-                <p className="text-sm text-muted-foreground">
-                  {me ? me.email : "Войдите или зарегистрируйтесь"}
-                </p>
-              </div>
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="space-y-1">
+      <p className="text-sm font-medium text-foreground">{displayName}</p>
+      <p className="text-sm text-muted-foreground">
+        {me ? me.email : "Войдите или зарегистрируйтесь"}
+      </p>
+    </div>
 
-              <div className="flex items-center gap-2">
-                {!me ? (
-                  <Button variant="outline" size="sm" onClick={() => setAuthOpen(true)}>
-                    Войти / Регистрация
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      clearAuthToken();
-                      setMe(null);
-                    }}
-                  >
-                    Выйти
-                  </Button>
-                )}
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+      {!me ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full sm:w-auto"
+          onClick={() => setAuthOpen(true)}
+        >
+          Войти / Регистрация
+        </Button>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full sm:w-auto"
+          onClick={() => {
+            clearAuthToken();
+            setMe(null);
+          }}
+        >
+          Выйти
+        </Button>
+      )}
 
-                <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-                  Настройки
-                </Button>
-              </div>
-            </div>
-          </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full sm:w-auto"
+        onClick={() => setSettingsOpen(true)}
+      >
+        Настройки
+      </Button>
+    </div>
+  </div>
+</div>
 
           {/* Input Section */}
           <div className="bg-card border border-border rounded-lg p-6">

@@ -36,8 +36,19 @@ export function InputBlock({
 }: InputBlockProps) {
   const isSearching = status === 'searching';
   const isSending = status === 'sending';
-  const canSearch = equipmentName.trim() && emailSubject.trim() && rfqText.trim() && !isSearching && !isSending;
-  const canSend = hasSuppliers && selectedCount > 0 && !isSearching && !isSending && status !== 'idle';
+  const canSearch =
+    equipmentName.trim() &&
+    emailSubject.trim() &&
+    rfqText.trim() &&
+    !isSearching &&
+    !isSending;
+
+  const canSend =
+    hasSuppliers &&
+    selectedCount > 0 &&
+    !isSearching &&
+    !isSending &&
+    status !== 'idle';
 
   return (
     <div className="space-y-6">
@@ -54,21 +65,21 @@ export function InputBlock({
           className="bg-card border-border"
         />
       </div>
-      
+
       <div className="space-y-2">
         <Label htmlFor="email-subject" className="text-foreground font-medium">
           Тема письма
         </Label>
         <Input
           id="email-subject"
-          placeholder="Запрос КП — ..."
+          placeholder="Запрос КП — ."
           value={emailSubject}
           onChange={(e) => onEmailSubjectChange(e.target.value)}
           disabled={isSearching || isSending}
           className="bg-card border-border"
         />
       </div>
-      
+
       <div className="space-y-2">
         <Label htmlFor="rfq-text" className="text-foreground font-medium">
           Текст запроса коммерческого предложения
@@ -76,7 +87,7 @@ export function InputBlock({
         <div className="relative">
           <Textarea
             id="rfq-text"
-            placeholder="Введите запрос с описанием оборудования в свободной форме..."
+            placeholder="Введите запрос с описанием оборудования в свободной форме."
             value={rfqText}
             onChange={(e) => {
               if (e.target.value.length <= MAX_CHARS) {
@@ -92,13 +103,10 @@ export function InputBlock({
           </div>
         </div>
       </div>
-      
-      <div className="flex gap-3 pt-2">
-        <Button
-          onClick={onSearch}
-          disabled={!canSearch}
-          className="flex-1"
-        >
+
+      {/* ✅ mobile: column, desktop: row */}
+      <div className="flex flex-col sm:flex-row gap-3 pt-2">
+        <Button onClick={onSearch} disabled={!canSearch} className="w-full sm:flex-1">
           {isSearching ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -111,12 +119,12 @@ export function InputBlock({
             </>
           )}
         </Button>
-        
+
         <Button
           onClick={onSend}
           disabled={!canSend}
           variant="secondary"
-          className="flex-1"
+          className="w-full sm:flex-1"
         >
           {isSending ? (
             <>
