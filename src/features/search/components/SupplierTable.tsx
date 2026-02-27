@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { Supplier } from "@/shared/types/rfq";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -29,6 +29,8 @@ import {
   AlertCircle,
   Info,
   ChevronDown,
+  CheckSquare2,
+  Square,
 } from "lucide-react";
 import { cn } from "@/shared/utils/utils";
 
@@ -39,8 +41,11 @@ interface SupplierTableProps {
   onAdd: (email: string) => void;
   disabled?: boolean;
 
-  /** NEW: просмотр из истории (без выбора/удаления/ручного добавления) */
+  /** просмотр из истории (без выбора/удаления/ручного добавления) */
   readOnly?: boolean;
+
+  /** NEW: переключение отметки "КП получено" */
+  onToggleQuote?: (supplierId: string, backendResultId: number, next: boolean) => void | Promise<void>;
 }
 
 function safeHostLabel(rawUrl?: string): string {
@@ -67,7 +72,6 @@ function safeHref(rawUrl?: string): string {
 function isValidEmail(email: string): boolean {
   const v = (email || "").trim();
   if (!v) return false;
-  // Практичная валидация (без чрезмерной строгости)
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
@@ -230,9 +234,7 @@ function AddManualEmailModal({
 
         <div className="space-y-3">
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Введите email поставщика
-            </p>
+            <p className="text-sm text-muted-foreground">Введите email поставщика</p>
             <Input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -240,7 +242,9 @@ function AddManualEmailModal({
               placeholder="example@company.ru"
               className={cn(
                 "bg-muted/30",
-                touched && !ok && "border-destructive focus-visible:ring-destructive"
+                touched &&
+                  !ok &&
+                  "border-destructive focus-visible:ring-destructive"
               )}
               autoFocus
               inputMode="email"
@@ -277,6 +281,7 @@ export function SupplierTable({
   onAdd,
   disabled = false,
   readOnly = false,
+  onToggleQuote,
 }: SupplierTableProps) {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
@@ -289,16 +294,40 @@ export function SupplierTable({
     setErrorModalOpen(true);
   };
 
-  if (suppliers.length === 0) {
+  // ===== toggle all checkboxes (header button) =====
+  const selectableSuppliers = useMemo(() => {
+    return suppliers.filter((s) => s.status !== "sent");
+  }, [suppliers]);
+
+  const allSelected = useMemo(() => {
+    if (selectableSuppliers.length === 0) return false;
+    return selectableSuppliers.every((s) => !!s.selected);
+  }, [selectableSuppliers]);
+
+  const handleToggleAll = () => {
+    if (disabled || readOnly) return;
+
+    const next = !allSelected;
+
+    for (const s of selectableSuppliers) {
+      const cur = !!s.selected;
+      if (cur !== next) onToggleSelect(s.id);
+    }
+  };
+
+  if (!suppliers.length) {
     return (
-      <div className="border border-border rounded-lg p-8 text-center bg-card">
-        <p className="text-muted-foreground">
-          Результаты поиска появятся здесь. Введите наименование оборудования и
-          нажмите "Найти поставщиков".
-        </p>
+      <div className="text-center py-10 text-muted-foreground">
+        Введите наименование оборудования и нажмите "Найти поставщиков".
       </div>
     );
   }
+
+  const toggleAllDisabled =
+    disabled || readOnly || selectableSuppliers.length === 0;
+
+  const showQuoteColumn = true; // всегда показываем колонку "КП"
+  const canToggleQuote = typeof onToggleQuote === "function" && !disabled;
 
   return (
     <div className="space-y-4">
@@ -306,7 +335,26 @@ export function SupplierTable({
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
-              {!readOnly && <TableHead className="w-12" />}
+              {!readOnly && (
+                <TableHead className="w-12">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleToggleAll}
+                    disabled={toggleAllDisabled}
+                    className="h-8 w-8"
+                    title={allSelected ? "Снять все галочки" : "Выбрать всех"}
+                    aria-label={allSelected ? "Снять все" : "Выбрать всех"}
+                  >
+                    {allSelected ? (
+                      <CheckSquare2 className="w-4 h-4" />
+                    ) : (
+                      <Square className="w-4 h-4" />
+                    )}
+                  </Button>
+                </TableHead>
+              )}
+
               <TableHead className="text-muted-foreground font-normal">
                 Поставщик
               </TableHead>
@@ -319,6 +367,13 @@ export function SupplierTable({
               <TableHead className="text-muted-foreground font-normal">
                 Статус
               </TableHead>
+
+              {showQuoteColumn && (
+                <TableHead className="text-muted-foreground font-normal w-16 text-center">
+                  КП
+                </TableHead>
+              )}
+
               {!readOnly && <TableHead className="w-12" />}
             </TableRow>
           </TableHeader>
@@ -327,6 +382,12 @@ export function SupplierTable({
             {suppliers.map((supplier) => {
               const href = safeHref(supplier.source_url);
               const hostLabel = safeHostLabel(supplier.source_url);
+
+              const backendId = supplier.backend_result_id;
+              const quoteChecked = !!supplier.quote_received;
+
+              const quoteDisabled =
+                !backendId || !canToggleQuote; // если нет backend_result_id — некуда сохранять
 
               return (
                 <TableRow
@@ -383,6 +444,24 @@ export function SupplierTable({
                       }
                     />
                   </TableCell>
+
+                  {showQuoteColumn && (
+                    <TableCell className="text-center">
+                      <Checkbox
+                        checked={quoteChecked}
+                        disabled={quoteDisabled}
+                        onCheckedChange={() => {
+                          if (!backendId || !onToggleQuote) return;
+                          onToggleQuote(supplier.id, backendId, !quoteChecked);
+                        }}
+                        title={
+                          !backendId
+                            ? "Нельзя сохранить: нет backend_result_id"
+                            : "Отметить, что КП получено"
+                        }
+                      />
+                    </TableCell>
+                  )}
 
                   {!readOnly && (
                     <TableCell>

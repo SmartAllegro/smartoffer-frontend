@@ -14,7 +14,7 @@ import { ru } from "date-fns/locale";
 import { useToast } from "@/shared/hooks/use-toast";
 
 import { SupplierTable } from "@/features/search/components/SupplierTable";
-import { getHistoryDetail } from "@/api/history";
+import { getHistoryDetail, setQuoteReceived } from "@/api/history";
 import { apiFetch } from "@/api/client";
 
 interface HistoryModalProps {
@@ -88,7 +88,6 @@ function getBackendJobId(request: RFQRequest): number | null {
 
 /**
  * Тип ответа GET /history?limit=&offset=
- * (по скриншоту)
  */
 type BackendHistoryItem = {
   id: number;
@@ -100,6 +99,9 @@ type BackendHistoryItem = {
   results_count?: number;
   emails_sent?: number;
   emails_failed?: number;
+
+  // тема последнего отправленного письма (если есть)
+  email_subject?: string | null;
 };
 
 type BackendHistoryList = {
@@ -125,8 +127,9 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTitle, setDetailTitle] = useState<string>("Результаты запроса");
   const [detailSuppliers, setDetailSuppliers] = useState<Supplier[]>([]);
+  const [detailJobId, setDetailJobId] = useState<number | null>(null);
 
-  // NEW: письмо
+  // письмо
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState<string>("");
   const [emailBody, setEmailBody] = useState<string>("");
@@ -134,18 +137,18 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
   const mapBackendToRFQ = useCallback((it: BackendHistoryItem): RFQRequest => {
     const createdAt = it.created_at ? new Date(it.created_at) : new Date();
 
-    // В истории НЕ показываем статус. Но RFQRequest требует status.
-    // Ставим search_completed как нейтральный.
+    const query = (it.query || "").trim();
+    const lastSubject = (it.email_subject || "").trim();
+
     const req: RFQRequest = {
       id: `job-${it.id}`,
-      equipment_name: it.query || "",
-      email_subject: `Запрос КП — ${it.query || ""}`.trim(),
+      equipment_name: (lastSubject || query) || "",
+      email_subject: `Запрос КП — ${query}`.trim(),
       rfq_text: "",
       status: "search_completed",
       created_at: createdAt,
       sent_at: undefined,
       recipients_count: undefined,
-      // дополнительные поля (мы их используем через any)
       ...({ backend_job_id: it.id } as any),
     };
 
@@ -161,9 +164,7 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
     try {
       const res = await apiFetch<BackendHistoryList>(
         `/history?limit=${PAGE_LIMIT}&offset=0`,
-        {
-          method: "GET",
-        }
+        { method: "GET" }
       );
 
       const page = Array.isArray(res?.items) ? res.items : [];
@@ -244,6 +245,7 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
       return;
     }
 
+    setDetailJobId(jid);
     setDetailOpen(true);
     setDetailLoading(true);
     setDetailSuppliers([]);
@@ -256,16 +258,13 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
     try {
       const detail = await getHistoryDetail(jid);
 
-      // NEW: подтягиваем письмо, если бэк вернул
       const subj =
         (detail as any)?.job?.email_subject ??
+        request.equipment_name ??
         request.email_subject ??
         `Запрос КП — ${request.equipment_name || ""}`.trim();
 
-      const body =
-        (detail as any)?.job?.email_body ??
-        request.rfq_text ??
-        "";
+      const body = (detail as any)?.job?.email_body ?? request.rfq_text ?? "";
 
       setEmailSubject(typeof subj === "string" ? subj : "");
       setEmailBody(typeof body === "string" ? body : "");
@@ -274,7 +273,6 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
         ? new Date(detail.job.created_at)
         : new Date();
 
-      // manual поставщики уже присутствуют в detail.results (snippet: "manual")
       const suppliers: Supplier[] = (detail.results || []).map((r: any) => {
         const derived = deriveSupplierStatus(r);
 
@@ -298,6 +296,10 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
           backend_result_id: typeof r?.id === "number" ? r.id : undefined,
           error_message: derived.error_message,
           error_details: derived.error_details,
+
+          // NEW: КП
+          quote_received: !!r?.quote_received,
+          quote_received_at: r?.quote_received_at ? new Date(r.quote_received_at) : null,
         } as Supplier;
       });
 
@@ -317,7 +319,7 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget;
-      const threshold = 180; // px до низа
+      const threshold = 180;
       const atBottom =
         el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
       if (atBottom) loadMorePage().catch(() => {});
@@ -326,6 +328,39 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
   );
 
   const canShowEmail = (emailSubject || "").trim() || (emailBody || "").trim();
+
+  // NEW: обработчик чекбокса "КП"
+  const handleToggleQuote = useCallback(
+    async (supplierId: string, backendResultId: number, next: boolean) => {
+      // optimistic update
+      const prev = detailSuppliers;
+
+      setDetailSuppliers((cur) =>
+        cur.map((s) =>
+          s.id === supplierId
+            ? {
+                ...s,
+                quote_received: next,
+                quote_received_at: next ? new Date() : null,
+              }
+            : s
+        )
+      );
+
+      try {
+        await setQuoteReceived(backendResultId, next);
+      } catch (e) {
+        // rollback
+        setDetailSuppliers(prev);
+        toast({
+          title: "Не удалось сохранить отметку КП",
+          description: e instanceof Error ? e.message : "Ошибка",
+          variant: "destructive",
+        });
+      }
+    },
+    [detailSuppliers, toast]
+  );
 
   return (
     <>
@@ -364,7 +399,6 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
             />
           </div>
 
-          {/* ВАЖНО: вместо ScrollArea — обычный overflow, чтобы точно работало колесо */}
           <div className="flex-1 overflow-auto -mx-6 px-6" onScroll={handleScroll}>
             <div className="space-y-3 pb-2">
               {loadingFirst && items.length === 0 ? (
@@ -397,8 +431,6 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
                             {request.equipment_name}
                           </p>
                         </div>
-
-                        {/* ✅ В истории статус НЕ показываем */}
                       </div>
                     </button>
                   );
@@ -411,14 +443,11 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
                 </div>
               )}
 
-              {!loadingFirst &&
-                !loadingMore &&
-                hasMore &&
-                filteredHistory.length > 0 && (
-                  <div className="py-3 text-center text-xs text-muted-foreground">
-                    Прокрутите вниз, чтобы загрузить ещё
-                  </div>
-                )}
+              {!loadingFirst && !loadingMore && hasMore && filteredHistory.length > 0 && (
+                <div className="py-3 text-center text-xs text-muted-foreground">
+                  Прокрутите вниз, чтобы загрузить ещё
+                </div>
+              )}
             </div>
           </div>
 
@@ -452,8 +481,9 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
                 onToggleSelect={() => {}}
                 onDelete={() => {}}
                 onAdd={() => {}}
-                disabled={true}
-                readOnly={true} // ✅ скрывает "Добавить вручную"
+                disabled={false}
+                readOnly={true}
+                onToggleQuote={handleToggleQuote}
               />
             )}
           </div>
@@ -498,7 +528,11 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
           </div>
 
           <div className="pt-4 border-t border-border">
-            <Button variant="outline" className="w-full" onClick={() => setEmailOpen(false)}>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setEmailOpen(false)}
+            >
               Закрыть
             </Button>
           </div>

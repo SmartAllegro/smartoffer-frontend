@@ -13,6 +13,9 @@ export type HistoryListItem = {
   results_count?: number;
   emails_sent?: number;
   emails_failed?: number;
+
+  // тема последнего отправленного письма (если есть)
+  email_subject?: string | null;
 };
 
 export type HistoryListResponse = {
@@ -29,7 +32,7 @@ export type HistoryDetailResponse = {
     time_ms: number;
     created_at: string;
 
-    // NEW: текст отправленного письма (последняя рассылка по job_id)
+    // текст отправленного письма (последняя рассылка по job_id)
     email_subject?: string | null;
     email_body?: string | null;
   };
@@ -42,14 +45,24 @@ export type HistoryDetailResponse = {
     emails: string[];
     score: number;
 
-    // статусы рассылки по адресам (если бэк их возвращает)
+    // статусы рассылки по адресам
     email_statuses?: Array<{
       email: string;
       status: "queued" | "sent" | "failed";
       last_error?: string | null;
       sent_at?: string | null;
     }>;
+
+    // NEW: отметка КП
+    quote_received?: boolean;
+    quote_received_at?: string | null;
   }>;
+};
+
+export type QuoteToggleResponse = {
+  ok: boolean;
+  quote_received: boolean;
+  quote_received_at: string | null;
 };
 
 /** Список истории */
@@ -62,9 +75,23 @@ export async function listHistory(
   });
 }
 
-/** Детали по конкретному job_id */
+/**
+ * Детали по конкретному job_id
+ * IMPORTANT: оставляем имя getHistoryDetail, потому что оно уже используется в HistoryModal.tsx
+ */
 export async function getHistoryDetail(jobId: number): Promise<HistoryDetailResponse> {
   return apiFetch<HistoryDetailResponse>(`/history/${jobId}`, {
     method: "GET",
+  });
+}
+
+/** NEW: отметить/снять "КП получено" у результата поиска */
+export async function setQuoteReceived(
+  resultId: number,
+  received: boolean
+): Promise<QuoteToggleResponse> {
+  return apiFetch<QuoteToggleResponse>(`/history/results/${resultId}/quote`, {
+    method: "POST",
+    json: { received },
   });
 }

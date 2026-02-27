@@ -41,4 +41,8 @@ export interface Supplier {
 
   // связь с бэкендом (SearchResult.id)
   backend_result_id?: number;
+
+  // NEW: отметка "КП получено"
+  quote_received?: boolean;
+  quote_received_at?: Date | null;
 }
