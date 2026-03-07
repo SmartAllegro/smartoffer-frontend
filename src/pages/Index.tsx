@@ -250,7 +250,7 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <div className="flex-1 p-4 sm:p-6 lg:p-8">
-        <div className="max-w-3xl mx-auto space-y-8">
+        <div className="w-full max-w-[996px] mx-auto space-y-8">
           {/* Header */}
           <div className="pt-8 pb-4">
             {/* Brand */}

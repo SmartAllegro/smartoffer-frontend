@@ -413,8 +413,8 @@ export function SupplierTable({
                     {supplier.supplier_name || "—"}
                   </TableCell>
 
-                  <TableCell>
-                    <span className="text-muted-foreground">
+                  <TableCell className="align-top">
+                    <span className="text-muted-foreground break-all whitespace-normal">
                       {supplier.contact || "—"}
                     </span>
                   </TableCell>
@@ -425,12 +425,12 @@ export function SupplierTable({
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-primary hover:underline"
+                        className="text-primary hover:underline break-all whitespace-normal inline-block"
                       >
                         {hostLabel}
                       </a>
                     ) : (
-                      <span className="text-muted-foreground">{hostLabel}</span>
+                      <span className="text-muted-foreground break-all whitespace-normal inline-block">{hostLabel}</span>
                     )}
                   </TableCell>
 
