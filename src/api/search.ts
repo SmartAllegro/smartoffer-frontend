@@ -30,8 +30,8 @@ type SearchJobStatusResponse = {
   results: BackendResult[];
 };
 
-const POLL_INTERVAL_MS = 1500;
-const MAX_POLLS = 90;
+const POLL_INTERVAL_MS = 10000;
+const MAX_POLLS = 36;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
