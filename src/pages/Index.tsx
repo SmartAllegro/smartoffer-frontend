@@ -121,7 +121,7 @@ export default function Index() {
       if (noFoundFlag) {
   toast({
     title: 'Поставщики не найдены',
-    description: 'Возможно, ваше оборудование удастся найти под другим именем.',
+    description: 'Возможно, ваше оборудование получится найти под другим именем.',
   });
 } else {
   toast({
@@ -357,17 +357,17 @@ export default function Index() {
           {status !== 'idle' && (
   <div className="flex justify-start">
     {noSuppliersFound ? (
-      <div className="text-sm leading-relaxed">
-        <p className="text-foreground font-medium">
-          По данному оборудованию поставщик в странах СНГ не найден.
-        </p>
-        <p className="text-muted-foreground">
-          Попробуйте изменить наименование оборудования.
-        </p>
-      </div>
-    ) : (
-      <StatusBadge status={status} />
-    )}
+  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 text-sm leading-relaxed">
+    <p className="text-yellow-400 font-semibold">
+      По данному оборудованию поставщик в странах СНГ не найден.
+    </p>
+    <p className="text-yellow-300/80">
+      Попробуйте изменить наименование оборудования.
+    </p>
+  </div>
+) : (
+  <StatusBadge status={status} />
+)}
   </div>
 )}
 
