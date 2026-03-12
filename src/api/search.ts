@@ -60,7 +60,6 @@ async function submitSearch(query: string): Promise<SearchSubmitResponse> {
       top_k: 20,
       enrich_emails: true,
       yandex_pages_cap: 5,
-      ddg_pages_cap: 3,
     },
   });
 }

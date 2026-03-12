@@ -39,6 +39,7 @@ export default function Index() {
   const [status, setStatus] = useState<RequestStatus>('idle');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [requestId, setRequestId] = useState<string>('');
+  const [noSuppliersFound, setNoSuppliersFound] = useState(false);
 
   // ВАЖНО: это настоящий job_id с бэка (число), нужен для /email/send и /history/{id}
   const [searchJobId, setSearchJobId] = useState<number | null>(null);
@@ -95,13 +96,15 @@ export default function Index() {
     setStatus('searching');
     setSuppliers([]);
     setSearchJobId(null);
+    setNoSuppliersFound(false);
 
     try {
-      const { jobId, suppliers: foundSuppliers } = await searchSuppliers(equipmentName, newRequestId);
+      const { jobId, suppliers: foundSuppliers, noSuppliersFound: noFoundFlag } = await searchSuppliers(equipmentName, newRequestId);
 
       setSuppliers(foundSuppliers);
       setSearchJobId(jobId);
       setStatus('search_completed');
+      setNoSuppliersFound(!!noFoundFlag);
 
       // Save request to history with tenant context
       addRequest({
@@ -115,10 +118,17 @@ export default function Index() {
         created_by_user_id: CURRENT_USER_ID,
       });
 
-      toast({
-        title: 'Поставщики найдены',
-        description: `Найдено ${foundSuppliers.length} потенциальных поставщиков для "${equipmentName}"`,
-      });
+      if (noFoundFlag) {
+  toast({
+    title: 'Поставщики не найдены',
+    description: 'Возможно, ваше оборудование удастся найти под другим именем.',
+  });
+} else {
+  toast({
+    title: 'Поставщики найдены',
+    description: `Найдено ${foundSuppliers.length} потенциальных поставщиков для "${equipmentName}"`,
+  });
+}
     } catch (error) {
       setStatus('error');
       toast({
@@ -344,12 +354,22 @@ export default function Index() {
             />
           </div>
 
-          {/* Status */}
           {status !== 'idle' && (
-            <div className="flex justify-start">
-              <StatusBadge status={status} />
-            </div>
-          )}
+  <div className="flex justify-start">
+    {noSuppliersFound ? (
+      <div className="text-sm leading-relaxed">
+        <p className="text-foreground font-medium">
+          По данному оборудованию поставщик в странах СНГ не найден.
+        </p>
+        <p className="text-muted-foreground">
+          Попробуйте изменить наименование оборудования.
+        </p>
+      </div>
+    ) : (
+      <StatusBadge status={status} />
+    )}
+  </div>
+)}
 
           {/* Suppliers Section */}
           <div>
