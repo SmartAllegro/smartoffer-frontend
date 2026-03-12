@@ -359,7 +359,7 @@ export default function Index() {
     {noSuppliersFound ? (
   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 text-sm leading-relaxed">
     <p className="text-yellow-400 font-semibold">
-      По данному оборудованию поставщик в странах СНГ не найден.
+      По данному запросу поставщик в странах СНГ не найден.
     </p>
     <p className="text-yellow-300/80">
       Попробуйте изменить наименование оборудования.
