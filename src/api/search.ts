@@ -73,7 +73,7 @@ async function getSearchJob(jobId: number): Promise<SearchJobStatusResponse> {
 export async function searchSuppliers(
   query: string,
   requestId: string
-): Promise<{ jobId: number | null; suppliers: Supplier[] }> {
+): Promise<{ jobId: number | null; suppliers: Supplier[]; noSuppliersFound: boolean }> {
   const submitted = await submitSearch(query);
   const jobId = typeof submitted.job_id === "number" ? submitted.job_id : null;
 
@@ -88,11 +88,14 @@ export async function searchSuppliers(
     lastStatus = job.status;
 
     if (job.status === "completed") {
-      return {
-        jobId,
-        suppliers: mapResultsToSuppliers(job.results || [], requestId),
-      };
-    }
+  const suppliers = mapResultsToSuppliers(job.results || [], requestId);
+
+  return {
+    jobId,
+    suppliers,
+    noSuppliersFound: suppliers.length === 0,
+  };
+}
 
     if (job.status === "failed") {
       throw new Error(job.error_message || "Поиск завершился с ошибкой");
