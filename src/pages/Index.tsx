@@ -357,8 +357,8 @@ export default function Index() {
           {status !== 'idle' && (
   <div className="flex justify-start">
     {noSuppliersFound ? (
-  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 text-sm leading-relaxed">
-    <p className="text-yellow-400 font-semibold">
+  <div className="border border-[#ffbf00] rounded-md px-4 py-3 text-sm leading-relaxed">
+    <p className="text-foreground font-medium">
       По данному запросу поставщик в странах СНГ не найден.
     </p>
     <p className="text-yellow-300/80">
