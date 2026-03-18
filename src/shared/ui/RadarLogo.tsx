@@ -19,7 +19,7 @@ const INITIAL_ANGLE = -20; // стартовое положение луча
 
 const targets: Target[] = [
   { radius: 35, angle: -18, fontSize: 22 },
-  { radius: 16, angle: 130, fontSize: 12 },
+  { radius: 19, angle: 138, fontSize: 12 },
   { radius: 58, angle: 45, fontSize: 17 },
   { radius: 60, angle: 170, fontSize: 14 },
   { radius: 35, angle: -110, fontSize: 17 },
