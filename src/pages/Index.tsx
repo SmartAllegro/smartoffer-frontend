@@ -286,7 +286,7 @@ export default function Index() {
 
         {/* Радар только на mobile/tablet */}
         <div className="flex justify-center lg:hidden mt-2">
-          <RadarLogo isActive={status === "searching"} size={150} />
+          <RadarLogo isActive={status === "searching"} size={180} />
         </div>
       </div>
 

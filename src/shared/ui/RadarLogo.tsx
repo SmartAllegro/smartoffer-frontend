@@ -213,7 +213,6 @@ export const RadarLogo: React.FC<Props> = ({
           const t = Math.max(0, 1 - diff / spread);
           const opacity = isActive ? 0.06 + t * 0.94 : 0.22;
           const glow = isActive ? t * 10 : 0;
-          const scale = isActive ? 1 + t * 0.12 : 1;
 
           return (
             <text
@@ -227,9 +226,6 @@ export const RadarLogo: React.FC<Props> = ({
               fill="hsl(var(--primary))"
               opacity={opacity}
               style={{
-  transformBox: "fill-box",
-  transformOrigin: "center",
-  transform: `scale(${scale})`,
   filter:
     glow > 0
       ? `
