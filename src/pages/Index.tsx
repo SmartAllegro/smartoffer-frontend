@@ -261,49 +261,49 @@ export default function Index() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <div className="flex-1 p-4 sm:p-6 lg:p-8">
-        <div className="w-full max-w-[996px] mx-auto space-y-8">
+        <div className="w-full max-w-[996px] mx-auto space-y-4">
           {/* Header */}
-<div className="pt-8 pb-4">
-  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-    <div className="flex flex-col lg:flex-row lg:items-start gap-6 lg:gap-10">
-      {/* Текстовый блок */}
-      <div className="pt-0 lg:pt-2 order-1">
-        <div className="mb-4">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-primary tracking-tight leading-none">
-            Smartoffer.pro
-          </h1>
-        </div>
+<div className="pt-8 pb-0">
+  <div className="flex flex-col lg:flex-row lg:items-start gap-6 lg:gap-10">
+    {/* Радар на desktop */}
+    <div className="hidden lg:block shrink-0">
+      <RadarLogo isActive={status === "searching"} size={220} />
+    </div>
 
-        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-foreground leading-tight mb-4">
-          Автоматизация запроса
-          <br />
-          коммерческих предложений
-        </h2>
+    {/* Контент шапки */}
+    <div className="flex-1">
+      <div className="mb-4">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-primary tracking-tight leading-none">
+          Smartoffer.pro
+        </h1>
+      </div>
 
-        <p className="text-lg sm:text-xl text-muted-foreground mb-4 lg:mb-0">
+      <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-foreground leading-tight mb-4">
+        Автоматизация запроса
+        <br />
+        коммерческих предложений
+      </h2>
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-lg sm:text-xl text-muted-foreground">
           Быстрый поиск поставщиков
         </p>
 
-        {/* Радар только на mobile/tablet */}
-        <div className="flex justify-center lg:hidden mt-2">
-          <RadarLogo isActive={status === "searching"} size={180} />
-        </div>
+        <Button
+          variant="outline"
+          onClick={() => setHistoryOpen(true)}
+          className="shrink-0 self-start sm:self-auto"
+        >
+          <History className="w-4 h-4 mr-2" />
+          История
+        </Button>
       </div>
 
-      {/* Радар только на desktop */}
-      <div className="hidden lg:block order-0 shrink-0">
-        <RadarLogo isActive={status === "searching"} size={220} />
+      {/* Радар на mobile/tablet */}
+      <div className="flex justify-center lg:hidden mt-4">
+        <RadarLogo isActive={status === "searching"} size={150} />
       </div>
     </div>
-
-    <Button
-      variant="outline"
-      onClick={() => setHistoryOpen(true)}
-      className="shrink-0 self-start lg:mt-8"
-    >
-      <History className="w-4 h-4 mr-2" />
-      История
-    </Button>
   </div>
 </div>
 

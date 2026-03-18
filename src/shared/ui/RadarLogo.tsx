@@ -211,7 +211,7 @@ export const RadarLogo: React.FC<Props> = ({
           // подсветка зависит от реального угла луча
           const spread = 15;
           const t = Math.max(0, 1 - diff / spread);
-          const opacity = isActive ? 0.08 + t * 0.92 : 0.46;
+          const opacity = isActive ? 0.08 + t * 0.92 : 0.7;
           const glow = isActive ? t * 10 : 0;
 
           return (
@@ -226,14 +226,15 @@ export const RadarLogo: React.FC<Props> = ({
               fill="hsl(var(--primary))"
               opacity={opacity}
               style={{
-  filter:
-    glow > 0
+  filter: isActive
+    ? glow > 0
       ? `
         drop-shadow(0 0 ${glow * 0.6}px rgba(255, 191, 0, 0.95))
         drop-shadow(0 0 ${glow * 1.2}px rgba(255, 191, 0, 0.75))
         drop-shadow(0 0 ${glow * 2}px rgba(255, 191, 0, 0.45))
       `
-      : "none",
+      : "none"
+    : "drop-shadow(0 0 2px rgba(255, 191, 0, 0.18))",
 }}
             >
               ₽
