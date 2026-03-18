@@ -12,6 +12,7 @@ import { searchSuppliers } from "@/api/search";
 import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from "@/shared/utils/tenant";
+import { RadarLogo } from "@/shared/ui/RadarLogo";
 
 // NEW: auth
 import { AuthModal } from "@/features/auth/components/AuthModal";
@@ -262,34 +263,40 @@ export default function Index() {
       <div className="flex-1 p-4 sm:p-6 lg:p-8">
         <div className="w-full max-w-[996px] mx-auto space-y-8">
           {/* Header */}
-          <div className="pt-8 pb-4">
-            {/* Brand */}
-            <div className="mb-6">
-              <h1 className="text-4xl sm:text-5xl font-bold text-primary tracking-tight">
-                Smartoffer.pro
-              </h1>
-            </div>
+<div className="pt-8 pb-4">
+  <div className="flex items-start justify-between gap-6">
+    <div className="flex items-start gap-8 sm:gap-10">
+      <RadarLogo isActive={status === "searching"} size={220} />
 
-            {/* Title and Controls */}
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">
-                Автоматизация запроса<br />коммерческих предложений
-              </h2>
-              <Button
-                variant="outline"
-                onClick={() => setHistoryOpen(true)}
-                className="shrink-0"
-              >
-                <History className="w-4 h-4 mr-2" />
-                История
-              </Button>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-muted-foreground">
-                Быстрый поиск поставщиков
-              </p>
-            </div>
-          </div>
+      <div className="pt-2">
+        <div className="mb-4">
+          <h1 className="text-5xl sm:text-6xl font-bold text-primary tracking-tight leading-none">
+            Smartoffer.pro
+          </h1>
+        </div>
+
+        <h2 className="text-3xl sm:text-4xl font-semibold text-foreground leading-tight mb-4">
+          Автоматизация запроса
+          <br />
+          коммерческих предложений
+        </h2>
+
+        <p className="text-xl text-muted-foreground">
+          Быстрый поиск поставщиков
+        </p>
+      </div>
+    </div>
+
+    <Button
+      variant="outline"
+      onClick={() => setHistoryOpen(true)}
+      className="shrink-0 mt-8"
+    >
+      <History className="w-4 h-4 mr-2" />
+      История
+    </Button>
+  </div>
+</div>
 
           {/* Authorization Block (REAL) */}
           <div className="bg-card border border-border rounded-lg p-4">
