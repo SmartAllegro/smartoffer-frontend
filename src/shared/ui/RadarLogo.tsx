@@ -211,7 +211,7 @@ export const RadarLogo: React.FC<Props> = ({
           // подсветка зависит от реального угла луча
           const spread = 15;
           const t = Math.max(0, 1 - diff / spread);
-          const opacity = isActive ? 0.06 + t * 0.94 : 0.22;
+          const opacity = isActive ? 0.08 + t * 0.92 : 0.46;
           const glow = isActive ? t * 10 : 0;
 
           return (
