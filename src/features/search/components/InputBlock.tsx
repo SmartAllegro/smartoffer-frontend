@@ -98,9 +98,9 @@ export function InputBlock({
             className="min-h-[120px] resize-y bg-card border-border"
             maxLength={MAX_CHARS}
           />
-          <div className="absolute bottom-2 right-3 text-xs text-muted-foreground">
-            {rfqText.length} / {MAX_CHARS} символов
-          </div>
+          <div className="absolute bottom-2 right-8 text-xs text-muted-foreground pointer-events-none">
+  {rfqText.length} / {MAX_CHARS} символов
+</div>
         </div>
       </div>
 
