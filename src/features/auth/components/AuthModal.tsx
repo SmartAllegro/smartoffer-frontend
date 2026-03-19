@@ -3,7 +3,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/di
 import { Input } from "@/shared/ui/input";
 import { Button } from "@/shared/ui/button";
 import { useToast } from "@/shared/hooks/use-toast";
-import { fetchMe, loginUser, registerUser, type UserMe } from "@/api/auth";
+import {
+  fetchMe,
+  loginUser,
+  registerUser,
+  requestPasswordReset,
+  type UserMe,
+} from "@/api/auth";
 import { setAuthToken } from "@/shared/utils/auth";
 
 type Props = {
@@ -15,12 +21,15 @@ type Props = {
 export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
   const { toast } = useToast();
 
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [loading, setLoading] = useState(false);
 
   // login
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+
+  // forgot
+  const [forgotEmail, setForgotEmail] = useState("");
 
   // register
   const [firstName, setFirstName] = useState("");
@@ -32,6 +41,8 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
     () => loginEmail.trim().length > 0 && loginPassword.trim().length > 0,
     [loginEmail, loginPassword]
   );
+
+  const canForgot = useMemo(() => forgotEmail.trim().length > 0, [forgotEmail]);
 
   const canRegister = useMemo(() => {
     return (
@@ -72,6 +83,31 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
     }
   }
 
+  async function handleForgotPassword() {
+    if (!canForgot) return;
+
+    setLoading(true);
+    try {
+      const result = await requestPasswordReset(forgotEmail.trim());
+
+      toast({
+        title: "Письмо отправлено",
+        description: result.message,
+      });
+
+      setLoginEmail(forgotEmail.trim());
+      setMode("login");
+    } catch (e) {
+      toast({
+        title: "Ошибка",
+        description: e instanceof Error ? e.message : "Не удалось отправить письмо",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleRegister() {
     if (!canRegister) return;
 
@@ -84,7 +120,6 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
         password: regPassword,
       });
 
-      // Автовход после регистрации
       const token = await loginUser({
         email: regEmail,
         password: regPassword,
@@ -105,10 +140,20 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setMode("login");
+        }
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Аккаунт Smartoffer</DialogTitle>
+          <DialogTitle>
+            {mode === "forgot" ? "Восстановление доступа" : "Аккаунт Smartoffer"}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex gap-2">
@@ -145,9 +190,52 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
               onChange={(e) => setLoginPassword(e.target.value)}
               autoComplete="current-password"
             />
+
+            <button
+              type="button"
+              onClick={() => {
+                setForgotEmail(loginEmail.trim());
+                setMode("forgot");
+              }}
+              disabled={loading}
+              className="block w-fit px-1 -mt-1 text-sm font-medium text-primary hover:opacity-90 disabled:opacity-50"
+            >
+              Забыли пароль
+            </button>
+
             <Button className="w-full" disabled={!canLogin || loading} onClick={handleLogin}>
               Войти
             </Button>
+          </div>
+        ) : mode === "forgot" ? (
+          <div className="mt-4 space-y-3">
+            <Input
+              placeholder="Email аккаунта"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              autoComplete="email"
+            />
+
+            <div className="text-sm text-muted-foreground leading-relaxed">
+              Мы отправим ссылку для сброса пароля на ваш email.
+            </div>
+
+            <Button
+              className="w-full"
+              disabled={!canForgot || loading}
+              onClick={handleForgotPassword}
+            >
+              Отправить ссылку
+            </Button>
+
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              disabled={loading}
+              className="block w-fit px-1 text-sm font-medium text-primary hover:opacity-90 disabled:opacity-50"
+            >
+              Назад ко входу
+            </button>
           </div>
         ) : (
           <div className="mt-4 space-y-3">
