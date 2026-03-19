@@ -48,7 +48,6 @@ export function Footer() {
               </li>
             </ul>
 
-            {/* ✅ Компактная кнопка */}
             <div className="mt-4">
               <Button
                 asChild
@@ -66,28 +65,44 @@ export function Footer() {
             </h3>
             <ul className="space-y-2 text-sm">
               <li>
-                <a
-                  href="#terms"
-                  className="text-muted-foreground hover:text-primary"
+                <Link
+                  to="/terms"
+                  className="text-muted-foreground hover:text-primary transition-colors"
                 >
                   Условия использования
-                </a>
+                </Link>
               </li>
               <li>
-                <a
-                  href="#privacy"
-                  className="text-muted-foreground hover:text-primary"
+                <Link
+                  to="/privacy"
+                  className="text-muted-foreground hover:text-primary transition-colors"
                 >
                   Политика конфиденциальности
-                </a>
+                </Link>
               </li>
               <li>
-                <a
-                  href="#docs"
-                  className="text-muted-foreground hover:text-primary"
+                <Link
+                  to="/offer"
+                  className="text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Публичная оферта
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/docs"
+                  className="text-muted-foreground hover:text-primary transition-colors"
                 >
                   Справка и документы
-                </a>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/data-retention"
+                  className="text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Политика хранения данных
+                </Link>
               </li>
             </ul>
           </div>
@@ -107,7 +122,8 @@ export function Footer() {
               </li>
               <li className="flex items-start gap-2 text-muted-foreground">
                 <MapPin className="w-4 h-4 mt-0.5" />
-                195027, г. Санкт-Петербург,<br />
+                195027, г. Санкт-Петербург,
+                <br />
                 ул. Магнитогорская, д. 51, лит. Е
               </li>
             </ul>
