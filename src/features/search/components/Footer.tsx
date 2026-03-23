@@ -19,49 +19,13 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { fetchMe, type UserMe } from "@/api/auth";
+import { sendSupportRequest } from "@/api/support";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
 type SupportStep = "chooser" | "email";
 
 const TELEGRAM_URL =
   import.meta.env.VITE_SUPPORT_TELEGRAM_URL || "https://t.me/your_username_here";
-
-const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-
-async function sendSupportRequest(payload: {
-  contact_email: string;
-  subject: string;
-  message: string;
-  source: string;
-  page_url: string;
-}) {
-  const url = API_BASE ? `${API_BASE}/support` : "/support";
-
-  const token = getAuthToken();
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    credentials: "include",
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    let detail = "Не удалось отправить обращение";
-    try {
-      const data = await res.json();
-      detail = data?.detail || data?.message || detail;
-    } catch {
-      // ignore
-    }
-    throw new Error(detail);
-  }
-
-  return res.json().catch(() => ({ ok: true }));
-}
 
 function TelegramIcon({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -172,7 +136,7 @@ function SupportModal({
       setMessage("");
     } catch (error) {
       setErrorText(
-        error instanceof Error ? error.message : "Не удалось отправить сообщение"
+        error instanceof Error ? error.message : "Не удалось отправить обращение"
       );
     } finally {
       setLoading(false);
@@ -180,26 +144,26 @@ function SupportModal({
   }
 
   return (
-  <Dialog open={open} onOpenChange={closeModal}>
-    <DialogContent
-      className="
-        max-w-[620px]
-        rounded-xl
-        border border-white/10
-        bg-card
-        p-0
-        text-white
-        shadow-2xl
-        [&_[data-radix-dialog-close]]:text-white/60
-        [&_[data-radix-dialog-close]]:hover:text-white
-      "
-    >
-      <div className="rounded-xl px-7 py-6">
-        <DialogHeader className="space-y-0 text-left">
-          <DialogTitle className="text-[22px] font-semibold text-white">
-            Поддержка
-          </DialogTitle>
-        </DialogHeader>
+    <Dialog open={open} onOpenChange={closeModal}>
+      <DialogContent
+        className="
+          max-w-[620px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-7 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Поддержка
+            </DialogTitle>
+          </DialogHeader>
 
           {step === "chooser" ? (
             <div className="mt-4">

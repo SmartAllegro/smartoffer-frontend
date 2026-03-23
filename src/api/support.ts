@@ -4,9 +4,8 @@ export type SupportRequest = {
   contact_email: string;
   subject: string;
   message: string;
-  search_job_id?: number | null;
-  page_url?: string | null;
   source?: string;
+  page_url?: string;
 };
 
 export type SupportResponse = {
