@@ -15,6 +15,7 @@ import PrivacyPolicy from "./pages/PrivacyPolicy";
 import PublicOffer from "./pages/PublicOffer";
 import Docs from "./pages/Docs";
 import DataRetentionPolicy from "./pages/DataRetentionPolicy";
+import PersonalDataConsent from "./pages/PersonalDataConsent";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/offer" element={<PublicOffer />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/data-retention" element={<DataRetentionPolicy />} />
+          <Route path="/personal-data-consent" element={<PersonalDataConsent />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </HashRouter>

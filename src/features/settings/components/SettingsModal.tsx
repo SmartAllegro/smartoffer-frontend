@@ -1,9 +1,11 @@
 ﻿import * as React from "react";
+import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import { Label } from "@/shared/ui/label";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { ChevronDown, Mail, FileText, ExternalLink, CheckCircle2, AlertCircle } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 
@@ -46,7 +48,6 @@ function loadSettings(): SettingsState {
 }
 
 function saveSettings(state: SettingsState) {
-  // сохраняем только то, что должно жить на фронте
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -68,10 +69,10 @@ export function SettingsModal({
   const [expanded, setExpanded] = React.useState<"auth" | "template" | null>("auth");
   const [state, setState] = React.useState<SettingsState>(() => loadSettings());
 
-  // email/auth UI state
   const [providers, setProviders] = React.useState<EmailProviderPreset[]>([]);
   const [providerId, setProviderId] = React.useState<string>("");
   const [appPassword, setAppPassword] = React.useState<string>("");
+  const [smtpConsentChecked, setSmtpConsentChecked] = React.useState(false);
 
   const [meEmail, setMeEmail] = React.useState<string>("");
 
@@ -90,17 +91,18 @@ export function SettingsModal({
   React.useEffect(() => {
     if (!open) return;
 
-    // reset local UI state (пароль не храним)
     setState(loadSettings());
     setAppPassword("");
+    setSmtpConsentChecked(false);
     setSmtpStatus({ state: "idle" });
 
-    // 1) получить профиль пользователя (email)
     fetchMe()
       .then((me) => setMeEmail(me.email))
       .catch(() => setMeEmail(""));
 
-    // 2) загрузить провайдеров
+    setLoadingProviders(true);
+(() => setMeEmail(""));
+
     setLoadingProviders(true);
     listEmailProviders()
       .then((list) => setProviders(list))
@@ -113,12 +115,10 @@ export function SettingsModal({
       })
       .finally(() => setLoadingProviders(false));
 
-    // 3) подтянуть текущие настройки SMTP (если уже сохраняли)
-    // если нет — просто игнорируем ошибку
     getEmailSettings()
       .then((s) => {
         if (s?.provider_id) setProviderId(s.provider_id);
-        // статус показываем как инфо (пароль не знаем, не показываем)
+
         if (s.is_verified) {
           setSmtpStatus({ state: "ok", message: "SMTP настроен и подтверждён" });
         } else if (s.last_verified_error) {
@@ -128,23 +128,36 @@ export function SettingsModal({
       .catch(() => {
         // ок, если ещё не настроено
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, toast]);
 
   const setTemplate = (template: string) => setState((s) => ({ ...s, template }));
-
   const handleResetTemplate = () => setTemplate(DEFAULT_TEMPLATE);
 
   async function handleSave() {
-    // 1) всегда сохраняем шаблон (как раньше)
     saveSettings(state);
     onSaved?.(state);
 
-    // 2) если пользователь НЕ настраивал SMTP — просто закрываем
-    // условие: либо не выбран провайдер, либо не введён пароль приложения
-    if (!providerId || !appPassword.trim()) {
+    const wantsSaveSmtp = Boolean(providerId && appPassword.trim());
+
+    if (!wantsSaveSmtp) {
       onOpenChange(false);
       toast({ title: "Настройки сохранены" });
+      return;
+    }
+
+    if (!smtpConsentChecked) {
+      setExpanded("auth");
+      setSmtpStatus({
+        state: "error",
+        message:
+          "Для сохранения SMTP-настроек необходимо подтвердить согласие на обработку персональных данных.",
+      });
+      toast({
+        title: "Подтвердите согласие",
+        description:
+          "Без галочки согласия SmartOffer не сохраняет SMTP-настройки.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -169,7 +182,6 @@ export function SettingsModal({
     setSmtpStatus({ state: "idle" });
 
     try {
-      // 2.1 verify (тестовое письмо на себя)
       const verifyRes = await verifyEmailSmtp({
         provider_id: selectedProvider.id,
         smtp_host: selectedProvider.smtp_host,
@@ -191,6 +203,7 @@ export function SettingsModal({
           verifyRes.message ||
           verifyRes.hint ||
           "SMTP проверка не пройдена. Проверьте пароль приложения и настройки безопасности почты.";
+
         setSmtpStatus({ state: "error", message: msg });
         toast({
           title: "Ошибка проверки SMTP",
@@ -200,7 +213,6 @@ export function SettingsModal({
         return;
       }
 
-      // 2.2 save settings (после успешной проверки)
       await saveEmailSettings({
         provider_id: selectedProvider.id,
         smtp_host: selectedProvider.smtp_host,
@@ -212,7 +224,10 @@ export function SettingsModal({
         from_email: meEmail,
       });
 
-      setSmtpStatus({ state: "ok", message: "Почта подтверждена. Тестовое письмо отправлено." });
+      setSmtpStatus({
+        state: "ok",
+        message: "Почта подтверждена. Тестовое письмо отправлено.",
+      });
 
       toast({
         title: "Почта настроена",
@@ -241,7 +256,6 @@ export function SettingsModal({
         </DialogHeader>
 
         <div className="space-y-3">
-          {/* Auth/SMTP section */}
           <button
             type="button"
             onClick={() => setExpanded((p) => (p === "auth" ? null : "auth"))}
@@ -317,6 +331,42 @@ export function SettingsModal({
                 </p>
               </div>
 
+              <div className="rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="smtp-personal-data-consent"
+                    checked={smtpConsentChecked}
+                    onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
+                    disabled={saving}
+                    className="mt-0.5"
+                  />
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="smtp-personal-data-consent"
+                      className="text-sm leading-5 cursor-pointer"
+                    >
+                      Я даю согласие на обработку персональных данных, необходимых
+                      для настройки SMTP и отправки писем через SmartOffer.
+                    </Label>
+
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Без этой галочки сервис не сохранит SMTP-настройки.
+                    </p>
+
+                    <Link
+                      to="/personal-data-consent"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+                    >
+                      Открыть текст согласия
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+
               {smtpStatus.state !== "idle" && (
                 <div
                   className={`rounded-lg border p-3 text-sm flex items-start gap-2 ${
@@ -343,7 +393,6 @@ export function SettingsModal({
             </div>
           )}
 
-          {/* Template section */}
           <button
             type="button"
             onClick={() => setExpanded((p) => (p === "template" ? null : "template"))}
