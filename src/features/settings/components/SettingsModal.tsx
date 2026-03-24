@@ -287,7 +287,7 @@ export function SettingsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>Настройки</DialogTitle>
         </DialogHeader>
@@ -505,14 +505,14 @@ export function SettingsModal({
           )}
         </div>
 
-        <div className="pt-2 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
-            Отмена
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Проверяем…" : "Сохранить"}
-          </Button>
-        </div>
+        <div className="sticky bottom-0 z-10 pt-3 pb-1 flex justify-end gap-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+  <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
+    Отмена
+  </Button>
+  <Button onClick={handleSave} disabled={saving}>
+    {saving ? "Проверяем…" : "Сохранить"}
+  </Button>
+</div>
       </DialogContent>
     </Dialog>
   );
