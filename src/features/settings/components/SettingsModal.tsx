@@ -76,6 +76,9 @@ export function SettingsModal({
   const [smtpConsentChecked, setSmtpConsentChecked] = React.useState(false);
   const [termsAccepted, setTermsAccepted] = React.useState(false);
 
+  const [smtpConsentLocked, setSmtpConsentLocked] = React.useState(false);
+  const [termsAcceptedLocked, setTermsAcceptedLocked] = React.useState(false);
+
   const [meEmail, setMeEmail] = React.useState<string>("");
 
   const [loadingProviders, setLoadingProviders] = React.useState(false);
@@ -97,6 +100,8 @@ export function SettingsModal({
     setAppPassword("");
     setSmtpConsentChecked(false);
     setTermsAccepted(false);
+    setSmtpConsentLocked(false);
+    setTermsAcceptedLocked(false);
     setSmtpStatus({ state: "idle" });
 
     fetchMe()
@@ -124,6 +129,15 @@ export function SettingsModal({
         } else if (s.last_verified_error) {
           setSmtpStatus({ state: "error", message: s.last_verified_error });
         }
+
+        const personalAccepted = Boolean(s.personal_data_consent_accepted);
+        const termsAcceptedServer = Boolean(s.terms_accepted);
+
+        setSmtpConsentChecked(personalAccepted);
+        setTermsAccepted(termsAcceptedServer);
+
+        setSmtpConsentLocked(personalAccepted);
+        setTermsAcceptedLocked(termsAcceptedServer);
       })
       .catch(() => {
         // ok, если ещё не настроено
@@ -131,6 +145,7 @@ export function SettingsModal({
   }, [open, toast]);
 
   const setTemplate = (template: string) => setState((s) => ({ ...s, template }));
+
   const handleResetTemplate = () => setTemplate(DEFAULT_TEMPLATE);
 
   async function handleSave() {
@@ -154,8 +169,7 @@ export function SettingsModal({
       });
       toast({
         title: "Подтвердите согласие",
-        description:
-          "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
+        description: "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
         variant: "destructive",
       });
       return;
@@ -170,8 +184,7 @@ export function SettingsModal({
       });
       toast({
         title: "Примите пользовательское соглашение",
-        description:
-          "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
+        description: "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
         variant: "destructive",
       });
       return;
@@ -238,16 +251,24 @@ export function SettingsModal({
         smtp_username: meEmail,
         smtp_password: appPassword.trim(),
         from_email: meEmail,
+
+        personal_data_consent_accepted: smtpConsentChecked,
+        terms_accepted: termsAccepted,
       });
+
+      setSmtpConsentChecked(true);
+      setTermsAccepted(true);
+      setSmtpConsentLocked(true);
+      setTermsAcceptedLocked(true);
 
       setSmtpStatus({
         state: "ok",
-        message: "Почта подтверждена. Тестовое письмо отправлено.",
+        message: "Почта подтверждена. Тестовое письмо отправлено. Юридические подтверждения зафиксированы в аккаунте.",
       });
 
       toast({
         title: "Почта настроена",
-        description: "Тестовое письмо отправлено на ваш адрес. Настройки сохранены.",
+        description: "Настройки SMTP и юридические подтверждения сохранены в аккаунте.",
       });
 
       onOpenChange(false);
@@ -352,7 +373,7 @@ export function SettingsModal({
                     id="smtp-personal-data-consent"
                     checked={smtpConsentChecked}
                     onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
-                    disabled={saving}
+                    disabled={saving || smtpConsentLocked}
                     className="mt-0.5"
                   />
 
@@ -361,12 +382,14 @@ export function SettingsModal({
                       htmlFor="smtp-personal-data-consent"
                       className="text-sm leading-5 cursor-pointer"
                     >
-                      Я даю согласие на обработку персональных данных, необходимых
-                      для настройки SMTP и отправки писем через SmartOffer.
+                      Я даю согласие на обработку персональных данных,
+                      необходимых для настройки SMTP и отправки писем через SmartOffer.
                     </Label>
 
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Без этой галочки сервис не сохранит SMTP-настройки.
+                      {smtpConsentLocked
+                        ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+                        : "Без этой галочки сервис не сохранит SMTP-настройки."}
                     </p>
 
                     <Link
@@ -386,7 +409,7 @@ export function SettingsModal({
                     id="smtp-terms-acceptance"
                     checked={termsAccepted}
                     onCheckedChange={(checked) => setTermsAccepted(checked === true)}
-                    disabled={saving}
+                    disabled={saving || termsAcceptedLocked}
                     className="mt-0.5"
                   />
 
@@ -399,7 +422,9 @@ export function SettingsModal({
                     </Label>
 
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Без этой галочки сервис не сохранит SMTP-настройки.
+                      {termsAcceptedLocked
+                        ? "Принятие пользовательского соглашения уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+                        : "Без этой галочки сервис не сохранит SMTP-настройки."}
                     </p>
 
                     <Link

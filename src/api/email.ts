@@ -1,5 +1,4 @@
-﻿// src/api/email.ts
-import { apiFetch } from "./client";
+﻿import { apiFetch } from "./client";
 
 export type EmailProviderPreset = {
   id: string;
@@ -8,8 +7,6 @@ export type EmailProviderPreset = {
   smtp_port: number;
   smtp_security: "ssl" | "starttls";
   app_password_url?: string | null;
-
-  // back-compat: бэк мог присылать name вместо title
   name?: string;
 };
 
@@ -20,8 +17,7 @@ export async function listEmailProviders(): Promise<EmailProviderPreset[]> {
 
   const raw = Array.isArray(r?.providers) ? r.providers : [];
 
-  // Нормализуем контракт: title <- title || name
-  const normalized: EmailProviderPreset[] = raw
+  return raw
     .map((p: any) => {
       const id = typeof p?.id === "string" ? p.id : "";
       if (!id) return null;
@@ -42,8 +38,6 @@ export async function listEmailProviders(): Promise<EmailProviderPreset[]> {
       } as EmailProviderPreset;
     })
     .filter(Boolean) as EmailProviderPreset[];
-
-  return normalized;
 }
 
 export type EmailVerifyIn = {
@@ -85,17 +79,41 @@ export type EmailSettingsIn = {
   smtp_username: string;
   smtp_password: string;
   from_email?: string | null;
+
+  personal_data_consent_accepted: boolean;
+  terms_accepted: boolean;
 };
 
-export async function saveEmailSettings(payload: EmailSettingsIn) {
-  return apiFetch("/email/settings", {
+export type EmailSettingsOut = {
+  provider_id: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_security: "ssl" | "starttls";
+  smtp_username: string;
+  from_email: string;
+
+  is_verified: boolean;
+  verified_at?: string | null;
+  last_verified_error?: string | null;
+
+  personal_data_consent_accepted: boolean;
+  personal_data_consent_accepted_at?: string | null;
+
+  terms_accepted: boolean;
+  terms_accepted_at?: string | null;
+};
+
+export async function saveEmailSettings(
+  payload: EmailSettingsIn
+): Promise<EmailSettingsOut> {
+  return apiFetch<EmailSettingsOut>("/email/settings", {
     method: "POST",
     json: payload,
   });
 }
 
-export async function getEmailSettings() {
-  return apiFetch("/email/settings", {
+export async function getEmailSettings(): Promise<EmailSettingsOut> {
+  return apiFetch<EmailSettingsOut>("/email/settings", {
     method: "GET",
   });
 }
