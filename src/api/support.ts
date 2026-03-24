@@ -11,6 +11,7 @@ export type SupportRequest = {
 export type SupportResponse = {
   ok: boolean;
   message: string;
+  ticket_number: string;
 };
 
 export async function sendSupportRequest(

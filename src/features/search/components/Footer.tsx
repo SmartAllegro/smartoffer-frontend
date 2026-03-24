@@ -25,7 +25,8 @@ import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 type SupportStep = "chooser" | "email";
 
 const TELEGRAM_URL =
-  import.meta.env.VITE_SUPPORT_TELEGRAM_URL || "https://t.me/your_username_here";
+  import.meta.env.VITE_SUPPORT_TELEGRAM_URL ||
+  "https://t.me/smartoffer_support?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%20%D0%BC%D0%B5%D0%BD%D1%8F%20%D0%B2%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BF%D0%BE%20SmartOffer.";
 
 function TelegramIcon({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -123,17 +124,19 @@ function SupportModal({
       setErrorText("");
       setSuccessText("");
 
-      await sendSupportRequest({
-        contact_email: me.email,
-        subject: subject.trim(),
-        message: message.trim(),
-        source: "footer_modal",
-        page_url: window.location.href,
-      });
+      const res = await sendSupportRequest({
+  contact_email: me.email,
+  subject: subject.trim(),
+  message: message.trim(),
+  source: "footer_modal",
+  page_url: window.location.href,
+});
 
-      setSuccessText("Сообщение отправлено. Мы ответим в течение рабочего дня.");
-      setSubject("");
-      setMessage("");
+setSuccessText(
+  `Сообщение отправлено. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
+);
+setSubject("");
+setMessage("");
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить обращение"
