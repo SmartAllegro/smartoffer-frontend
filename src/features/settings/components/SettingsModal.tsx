@@ -72,7 +72,9 @@ export function SettingsModal({
   const [providers, setProviders] = React.useState<EmailProviderPreset[]>([]);
   const [providerId, setProviderId] = React.useState<string>("");
   const [appPassword, setAppPassword] = React.useState<string>("");
+
   const [smtpConsentChecked, setSmtpConsentChecked] = React.useState(false);
+  const [termsAccepted, setTermsAccepted] = React.useState(false);
 
   const [meEmail, setMeEmail] = React.useState<string>("");
 
@@ -94,14 +96,12 @@ export function SettingsModal({
     setState(loadSettings());
     setAppPassword("");
     setSmtpConsentChecked(false);
+    setTermsAccepted(false);
     setSmtpStatus({ state: "idle" });
 
     fetchMe()
       .then((me) => setMeEmail(me.email))
       .catch(() => setMeEmail(""));
-
-    setLoadingProviders(true);
-(() => setMeEmail(""));
 
     setLoadingProviders(true);
     listEmailProviders()
@@ -126,7 +126,7 @@ export function SettingsModal({
         }
       })
       .catch(() => {
-        // ок, если ещё не настроено
+        // ok, если ещё не настроено
       });
   }, [open, toast]);
 
@@ -155,7 +155,23 @@ export function SettingsModal({
       toast({
         title: "Подтвердите согласие",
         description:
-          "Без галочки согласия SmartOffer не сохраняет SMTP-настройки.",
+          "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!termsAccepted) {
+      setExpanded("auth");
+      setSmtpStatus({
+        state: "error",
+        message:
+          "Для сохранения SMTP-настроек необходимо принять пользовательское соглашение.",
+      });
+      toast({
+        title: "Примите пользовательское соглашение",
+        description:
+          "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
         variant: "destructive",
       });
       return;
@@ -186,7 +202,7 @@ export function SettingsModal({
         provider_id: selectedProvider.id,
         smtp_host: selectedProvider.smtp_host,
         smtp_port: selectedProvider.smtp_port,
-        smtp_security: normalizeSecurity(selectedProvider.smtp_security as any),
+        smtp_security: normalizeSecurity(selectedProvider.smtp_security as string),
 
         smtp_username: meEmail,
         smtp_password: appPassword.trim(),
@@ -217,7 +233,7 @@ export function SettingsModal({
         provider_id: selectedProvider.id,
         smtp_host: selectedProvider.smtp_host,
         smtp_port: selectedProvider.smtp_port,
-        smtp_security: normalizeSecurity(selectedProvider.smtp_security as any),
+        smtp_security: normalizeSecurity(selectedProvider.smtp_security as string),
 
         smtp_username: meEmail,
         smtp_password: appPassword.trim(),
@@ -310,8 +326,7 @@ export function SettingsModal({
                 )}
 
                 <p className="text-xs text-muted-foreground">
-                  Выберите провайдера, перейдите по инструкции, создайте “пароль приложения” и
-                  вставьте его ниже.
+                  Выберите провайдера, перейдите по инструкции, создайте пароль приложения и вставьте его ниже.
                 </p>
               </div>
 
@@ -321,7 +336,7 @@ export function SettingsModal({
                   id="app-pass"
                   value={appPassword}
                   onChange={(e) => setAppPassword(e.target.value)}
-                  placeholder="Вставьте пароль приложения (не обычный пароль)"
+                  placeholder="Вставьте пароль приложения"
                   type="password"
                   disabled={saving}
                 />
@@ -331,7 +346,7 @@ export function SettingsModal({
                 </p>
               </div>
 
-              <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
                 <div className="flex items-start gap-3">
                   <Checkbox
                     id="smtp-personal-data-consent"
@@ -361,6 +376,39 @@ export function SettingsModal({
                       className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
                     >
                       Открыть текст согласия
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="smtp-terms-acceptance"
+                    checked={termsAccepted}
+                    onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                    disabled={saving}
+                    className="mt-0.5"
+                  />
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="smtp-terms-acceptance"
+                      className="text-sm leading-5 cursor-pointer"
+                    >
+                      Я принимаю пользовательское соглашение.
+                    </Label>
+
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Без этой галочки сервис не сохранит SMTP-настройки.
+                    </p>
+
+                    <Link
+                      to="/terms"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+                    >
+                      Открыть пользовательское соглашение
                       <ExternalLink className="w-3.5 h-3.5" />
                     </Link>
                   </div>
