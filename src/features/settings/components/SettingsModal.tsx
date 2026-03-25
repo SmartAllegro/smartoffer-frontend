@@ -505,7 +505,7 @@ export function SettingsModal({
           )}
         </div>
 
-        <div className="sticky bottom-0 z-10 pt-3 pb-1 flex justify-end gap-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="pt-2 flex justify-end gap-2">
   <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
     Отмена
   </Button>
