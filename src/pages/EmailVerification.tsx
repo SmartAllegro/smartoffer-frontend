@@ -82,7 +82,7 @@
         </p>
 
         <p className="text-foreground font-semibold">
-          Если не получилось — напишите в поддержку: info@smartoffer.pro
+          Если не получилось — напишите в поддержку: support@smartoffer.pro
         </p>
       </div>
     </main>

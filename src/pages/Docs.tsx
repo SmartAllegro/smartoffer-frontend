@@ -14,6 +14,7 @@ import {
   Settings,
   CheckCircle2,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 
 const QUICK_LINKS = [
@@ -111,7 +112,17 @@ const HELP_SECTIONS = [
     ],
   },
   {
-    title: "5. Безопасность и доступ",
+    title: "5. Удаление аккаунта",
+    icon: Trash2,
+    items: [
+      "В настройках доступна self-service кнопка удаления аккаунта.",
+      "Для удаления требуется повторно подтвердить email аккаунта и ввести пароль.",
+      "После удаления аккаунта из активного контура удаляются аккаунт, SMTP-настройки и связанные данные сервиса.",
+      "Если нужен отдельный запрос по данным без удаления аккаунта, используй support@smartoffer.pro.",
+    ],
+  },
+ {
+    title: "6. Безопасность и доступ",
     icon: Shield,
     items: [
       "Доступ к аккаунту защищён авторизацией по email и паролю.",
@@ -139,6 +150,11 @@ const FAQ = [
       "Откройте историю запросов. Там доступны тема письма, текст, статусы по адресам и отметки о полученных коммерческих предложениях.",
   },
   {
+    question: "Можно ли удалить аккаунт самостоятельно?",
+    answer:
+      "Да. В настройках сервиса предусмотрена отдельная кнопка удаления аккаунта с обязательным подтверждением email и пароля.",
+  },
+{
     question: "Можно ли использовать личную почту?",
     answer:
       "Технически SMTP можно подключить, но для рабочего сценария и бесплатного тарифа рекомендуется корпоративная почта. Это снижает риск блокировок и повышает доверие получателей.",
@@ -173,7 +189,7 @@ export default function Docs() {
               <p className="text-muted-foreground leading-relaxed max-w-3xl">
                 На этой странице собраны основные инструкции по работе с сервисом,
                 быстрые переходы к юридическим документам и ответы на частые вопросы
-                по поиску поставщиков, SMTP и истории отправок.
+                по поиску поставщиков, SMTP, истории отправок и удалению аккаунта.
               </p>
             </div>
 
@@ -183,9 +199,9 @@ export default function Docs() {
           </div>
         </section>
 
-        <section className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="border border-border rounded-2xl bg-card p-6">
-            <div className="flex items-center gap-2 text-foreground font-medium mb-3">
+        <section className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="border border-border rounded-2xl bg-card p-5">
+            <div className="flex items-center gap-2 text-foreground font-medium mb-2">
               <Search className="w-4 h-4" />
               Поиск поставщиков
             </div>
@@ -195,8 +211,8 @@ export default function Docs() {
             </p>
           </div>
 
-          <div className="border border-border rounded-2xl bg-card p-6">
-            <div className="flex items-center gap-2 text-foreground font-medium mb-3">
+          <div className="border border-border rounded-2xl bg-card p-5">
+            <div className="flex items-center gap-2 text-foreground font-medium mb-2">
               <Mail className="w-4 h-4" />
               SMTP и письма
             </div>
@@ -206,14 +222,24 @@ export default function Docs() {
             </p>
           </div>
 
-          <div className="border border-border rounded-2xl bg-card p-6">
-            <div className="flex items-center gap-2 text-foreground font-medium mb-3">
+          <div className="border border-border rounded-2xl bg-card p-5">
+            <div className="flex items-center gap-2 text-foreground font-medium mb-2">
               <History className="w-4 h-4" />
-              История и статусы
+              История
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">
               История помогает контролировать завершённые поиски, отправки писем
               и факт получения коммерческих предложений.
+            </p>
+          </div>
+
+          <div className="border border-border rounded-2xl bg-card p-5">
+            <div className="flex items-center gap-2 text-foreground font-medium mb-2">
+              <Trash2 className="w-4 h-4" />
+              Удаление аккаунта
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Аккаунт можно удалить через настройки без отдельного ручного запроса.
             </p>
           </div>
         </section>
@@ -226,7 +252,6 @@ export default function Docs() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {QUICK_LINKS.map((item) => {
               const Icon = item.icon;
-
               return (
                 <Link
                   key={item.title}
@@ -255,7 +280,6 @@ export default function Docs() {
         <section className="mt-10 space-y-4">
           {HELP_SECTIONS.map((section) => {
             const Icon = section.icon;
-
             return (
               <div
                 key={section.title}
@@ -308,19 +332,13 @@ export default function Docs() {
             <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
               <p>
                 По техническим вопросам:{" "}
-                <a
-                  href="mailto:support@smartoffer.pro"
-                  className="text-primary hover:underline"
-                >
+                <a href="mailto:support@smartoffer.pro" className="text-primary hover:underline">
                   support@smartoffer.pro
                 </a>
               </p>
               <p>
                 По общим и бизнес-вопросам:{" "}
-                <a
-                  href="mailto:info@smartoffer.pro"
-                  className="text-primary hover:underline"
-                >
+                <a href="mailto:info@smartoffer.pro" className="text-primary hover:underline">
                   info@smartoffer.pro
                 </a>
               </p>
