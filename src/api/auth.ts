@@ -17,6 +17,13 @@ export type ResetPasswordResponse = {
   message: string;
 };
 
+export type DeleteAccountResponse = {
+  ok: boolean;
+  message: string;
+  deleted_user_id: number;
+  email: string;
+};
+
 export async function registerUser(payload: {
   first_name: string;
   last_name: string;
@@ -58,4 +65,14 @@ export async function confirmPasswordReset(payload: {
 
 export async function fetchMe(): Promise<UserMe> {
   return apiFetch<UserMe>("/auth/me", { method: "GET" });
+}
+
+export async function deleteCurrentUser(payload: {
+  confirm_email: string;
+  password: string;
+}): Promise<DeleteAccountResponse> {
+  return apiFetch<DeleteAccountResponse>("/auth/delete-account", {
+    method: "POST",
+    json: payload,
+  });
 }

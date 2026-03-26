@@ -6,10 +6,18 @@ import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import { Label } from "@/shared/ui/label";
 import { Checkbox } from "@/shared/ui/checkbox";
-import { ChevronDown, Mail, FileText, ExternalLink, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  ChevronDown,
+  Mail,
+  FileText,
+  ExternalLink,
+  CheckCircle2,
+  AlertCircle,
+  Trash2,
+} from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 
-import { fetchMe } from "@/api/auth";
+import { fetchMe, deleteCurrentUser } from "@/api/auth";
 import {
   listEmailProviders,
   verifyEmailSmtp,
@@ -17,6 +25,7 @@ import {
   getEmailSettings,
   type EmailProviderPreset,
 } from "@/api/email";
+import { clearAuthToken } from "@/shared/utils/auth";
 
 export const STORAGE_KEY = "smartoffer.settings";
 export const DEFAULT_TEMPLATE = `Добрый день!
@@ -66,7 +75,7 @@ export function SettingsModal({
 }) {
   const { toast } = useToast();
 
-  const [expanded, setExpanded] = React.useState<"auth" | "template" | null>("auth");
+  const [expanded, setExpanded] = React.useState<"auth" | "template" | "danger" | null>("auth");
   const [state, setState] = React.useState<SettingsState>(() => loadSettings());
 
   const [providers, setProviders] = React.useState<EmailProviderPreset[]>([]);
@@ -81,6 +90,10 @@ export function SettingsModal({
 
   const [meEmail, setMeEmail] = React.useState<string>("");
 
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = React.useState("");
+  const [deletePassword, setDeletePassword] = React.useState("");
+  const [deletingAccount, setDeletingAccount] = React.useState(false);
+
   const [loadingProviders, setLoadingProviders] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
@@ -93,11 +106,19 @@ export function SettingsModal({
     [providers, providerId]
   );
 
+  const canDeleteAccount =
+    meEmail.trim().length > 0 &&
+    deleteConfirmEmail.trim().toLowerCase() === meEmail.trim().toLowerCase() &&
+    deletePassword.trim().length > 0;
+
   React.useEffect(() => {
     if (!open) return;
 
     setState(loadSettings());
     setAppPassword("");
+    setDeleteConfirmEmail("");
+    setDeletePassword("");
+
     setSmtpConsentChecked(false);
     setTermsAccepted(false);
     setSmtpConsentLocked(false);
@@ -121,7 +142,7 @@ export function SettingsModal({
       .finally(() => setLoadingProviders(false));
 
     getEmailSettings()
-      .then((s) => {
+      .then((s: any) => {
         if (s?.provider_id) setProviderId(s.provider_id);
 
         if (s.is_verified) {
@@ -140,12 +161,11 @@ export function SettingsModal({
         setTermsAcceptedLocked(termsAcceptedServer);
       })
       .catch(() => {
-        // ok, если ещё не настроено
+        // ок, если ещё не настроено
       });
   }, [open, toast]);
 
   const setTemplate = (template: string) => setState((s) => ({ ...s, template }));
-
   const handleResetTemplate = () => setTemplate(DEFAULT_TEMPLATE);
 
   async function handleSave() {
@@ -216,13 +236,10 @@ export function SettingsModal({
         smtp_host: selectedProvider.smtp_host,
         smtp_port: selectedProvider.smtp_port,
         smtp_security: normalizeSecurity(selectedProvider.smtp_security as string),
-
         smtp_username: meEmail,
         smtp_password: appPassword.trim(),
-
         from_email: meEmail,
         test_to_email: meEmail,
-
         subject: "Smartoffer: тестовое письмо",
         body: "Это тестовое письмо для проверки настроек SMTP в Smartoffer.",
       });
@@ -247,14 +264,12 @@ export function SettingsModal({
         smtp_host: selectedProvider.smtp_host,
         smtp_port: selectedProvider.smtp_port,
         smtp_security: normalizeSecurity(selectedProvider.smtp_security as string),
-
         smtp_username: meEmail,
         smtp_password: appPassword.trim(),
         from_email: meEmail,
-
         personal_data_consent_accepted: smtpConsentChecked,
         terms_accepted: termsAccepted,
-      });
+      } as any);
 
       setSmtpConsentChecked(true);
       setTermsAccepted(true);
@@ -263,15 +278,13 @@ export function SettingsModal({
 
       setSmtpStatus({
         state: "ok",
-        message: "Почта подтверждена. Тестовое письмо отправлено. Юридические подтверждения зафиксированы в аккаунте.",
+        message: "SMTP настроен и подтверждён",
       });
 
       toast({
         title: "Почта настроена",
-        description: "Настройки SMTP и юридические подтверждения сохранены в аккаунте.",
+        description: "Настройки SMTP и юридические подтверждения сохранены.",
       });
-
-      onOpenChange(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Произошла ошибка";
       setSmtpStatus({ state: "error", message: msg });
@@ -282,6 +295,46 @@ export function SettingsModal({
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!canDeleteAccount || deletingAccount) return;
+
+    const confirmed = window.confirm(
+      "Удаление аккаунта необратимо. Будут удалены аккаунт, SMTP-настройки, история поисков и связанные данные. Продолжить?"
+    );
+    if (!confirmed) return;
+
+    setDeletingAccount(true);
+
+    try {
+      const result = await deleteCurrentUser({
+        confirm_email: deleteConfirmEmail.trim(),
+        password: deletePassword.trim(),
+      });
+
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
+
+      clearAuthToken();
+      onOpenChange(false);
+
+      toast({
+        title: "Аккаунт удалён",
+        description: result.message,
+      });
+
+      window.location.reload();
+    } catch (e) {
+      toast({
+        title: "Не удалось удалить аккаунт",
+        description: e instanceof Error ? e.message : "Ошибка удаления аккаунта",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingAccount(false);
     }
   }
 
@@ -491,8 +544,8 @@ export function SettingsModal({
                   onChange={(e) => setTemplate(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Доступные переменные: <code>{"{{equipment}}"}</code>,{" "}
-                  <code>{"{{specs}}"}</code>, <code>{"{{user_name}}"}</code>
+                  Доступные переменные: <code>{"{{equipment}}"}</code>, <code>{"{{specs}}"}</code>,{" "}
+                  <code>{"{{user_name}}"}</code>
                 </p>
               </div>
 
@@ -503,16 +556,81 @@ export function SettingsModal({
               </div>
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => setExpanded((p) => (p === "danger" ? null : "danger"))}
+            className="w-full flex items-center justify-between rounded-lg border border-destructive/30 bg-card px-4 py-3 text-left"
+          >
+            <span className="flex items-center gap-2 font-medium text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Удаление аккаунта
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${expanded === "danger" ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {expanded === "danger" && (
+            <div className="rounded-lg border border-destructive/30 bg-card p-4 space-y-4">
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-muted-foreground leading-relaxed">
+                Это необратимое действие. Будут удалены аккаунт, SMTP-настройки, история поисков и связанные данные.
+                Для операционных резервных копий и иных обязательных исключений ориентируйся на политику хранения данных и обращения в поддержку.
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="delete-confirm-email">Введите email аккаунта для подтверждения</Label>
+                <Input
+                  id="delete-confirm-email"
+                  value={deleteConfirmEmail}
+                  onChange={(e) => setDeleteConfirmEmail(e.target.value)}
+                  placeholder={meEmail || "email аккаунта"}
+                  autoComplete="email"
+                  disabled={deletingAccount}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="delete-password">Введите пароль аккаунта</Label>
+                <Input
+                  id="delete-password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Пароль аккаунта"
+                  type="password"
+                  autoComplete="current-password"
+                  disabled={deletingAccount}
+                />
+              </div>
+
+              <div className="text-xs text-muted-foreground leading-relaxed">
+                Для соответствия 152-ФЗ пользователь может инициировать удаление аккаунта самостоятельно.
+                Если нужен отдельный запрос по данным без удаления аккаунта, используй{" "}
+                <a href="mailto:support@smartoffer.pro" className="text-primary hover:underline">
+                  support@smartoffer.pro
+                </a>.
+              </div>
+
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={handleDeleteAccount}
+                disabled={!canDeleteAccount || deletingAccount}
+              >
+                {deletingAccount ? "Удаляем аккаунт…" : "Удалить аккаунт"}
+              </Button>
+            </div>
+          )}
         </div>
 
-        <div className="pt-2 flex justify-end gap-2">
-  <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
-    Отмена
-  </Button>
-  <Button onClick={handleSave} disabled={saving}>
-    {saving ? "Проверяем…" : "Сохранить"}
-  </Button>
-</div>
+        <div className="sticky bottom-0 z-10 pt-3 pb-1 flex justify-end gap-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving || deletingAccount}>
+            Отмена
+          </Button>
+          <Button onClick={handleSave} disabled={saving || deletingAccount}>
+            {saving ? "Проверяем…" : "Сохранить"}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
