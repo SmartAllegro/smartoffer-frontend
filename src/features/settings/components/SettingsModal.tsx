@@ -1,4 +1,4 @@
-﻿import * as React from "react";
+import * as React from "react";
 import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
@@ -29,12 +29,14 @@ import { clearAuthToken } from "@/shared/utils/auth";
 
 export const STORAGE_KEY = "smartoffer.settings";
 export const DEFAULT_TEMPLATE = `Добрый день!
-
 Просьба прислать КП:
-- Наименование: {{equipment}}
-- Технические характеристики: {{specs}}
 
-Также прошу прислать реквизиты компании.
+- Наименование: 
+
+- Технические характеристики: 
+
+- Колличество:
+
 
 С уважением,
 {{user_name}}`;
@@ -340,12 +342,15 @@ export function SettingsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
-        <DialogHeader>
-          <DialogTitle>Настройки</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col overflow-hidden p-0">
+        <div className="px-6 pt-6 pb-0 shrink-0">
+          <DialogHeader>
+            <DialogTitle>Настройки</DialogTitle>
+          </DialogHeader>
+        </div>
 
-        <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-4">
+          <div className="space-y-3">
           <button
             type="button"
             onClick={() => setExpanded((p) => (p === "auth" ? null : "auth"))}
@@ -538,14 +543,19 @@ export function SettingsModal({
               <div className="space-y-2">
                 <Label htmlFor="template">Шаблон письма</Label>
                 <Textarea
-                  id="template"
-                  className="min-h-[160px]"
-                  value={state.template}
-                  onChange={(e) => setTemplate(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Доступные переменные: <code>{"{{equipment}}"}</code>, <code>{"{{specs}}"}</code>,{" "}
-                  <code>{"{{user_name}}"}</code>
+  id="template"
+  className="min-h-[180px] resize-y bg-background text-foreground leading-6 font-normal tracking-normal [text-shadow:none] [filter:none]"
+  style={{
+    WebkitFontSmoothing: "antialiased",
+    MozOsxFontSmoothing: "grayscale",
+    textShadow: "none",
+    filter: "none",
+  }}
+  value={state.template}
+  onChange={(e) => setTemplate(e.target.value)}
+/>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+  Для ускорения коммуникации советуем указать реквизиты компании в подписи к письму при необходимости.
                 </p>
               </div>
 
@@ -575,7 +585,7 @@ export function SettingsModal({
             <div className="rounded-lg border border-destructive/30 bg-card p-4 space-y-4">
               <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-muted-foreground leading-relaxed">
                 Это необратимое действие. Будут удалены аккаунт, SMTP-настройки, история поисков и связанные данные.
-                Для операционных резервных копий и иных обязательных исключений ориентируйся на политику хранения данных и обращения в поддержку.
+                Для операционных резервных копий и иных обязательных исключений ориентируйтесь на политику хранения данных и обращения в поддержку.
               </div>
 
               <div className="space-y-2">
@@ -605,7 +615,7 @@ export function SettingsModal({
 
               <div className="text-xs text-muted-foreground leading-relaxed">
                 Для соответствия 152-ФЗ пользователь может инициировать удаление аккаунта самостоятельно.
-                Если нужен отдельный запрос по данным без удаления аккаунта, используй{" "}
+                Если нужен отдельный запрос по данным без удаления аккаунта, используйте{" "}
                 <a href="mailto:support@smartoffer.pro" className="text-primary hover:underline">
                   support@smartoffer.pro
                 </a>.
@@ -621,10 +631,15 @@ export function SettingsModal({
               </Button>
             </div>
           )}
+          </div>
         </div>
 
-        <div className="sticky bottom-0 z-10 pt-3 pb-1 flex justify-end gap-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving || deletingAccount}>
+        <div className="shrink-0 border-t border-border bg-background px-6 py-4 flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => onOpenChange(false)}
+            disabled={saving || deletingAccount}
+          >
             Отмена
           </Button>
           <Button onClick={handleSave} disabled={saving || deletingAccount}>
