@@ -1,5 +1,16 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  BadgeCheck,
+  Mail,
+  Shield,
+  Zap,
+  ArrowLeft,
+  ChevronLeft,
+  Loader2,
+  Send,
+} from "lucide-react";
+
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
@@ -12,15 +23,15 @@ import {
 import { fetchMe, type UserMe } from "@/api/auth";
 import { sendSupportRequest } from "@/api/support";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
-import {
-  BadgeCheck,
-  Mail,
-  Shield,
-  Zap,
-  ArrowLeft,
-  Loader2,
-  Send,
-} from "lucide-react";
+
+type PricingStep = "plans" | "payment";
+
+const scrollToPricing = () => {
+  document.getElementById("pricing")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+};
 
 const PRICING = [
   {
@@ -47,14 +58,18 @@ const PRICING = [
     limit: "1000 запросов",
     note: "Для активных закупок",
   },
-];
+] as const;
+
+type PricingPlan = (typeof PRICING)[number];
 
 function InvoiceRequestModal({
   open,
   onOpenChange,
+  selectedPlan,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
+  selectedPlan: PricingPlan | null;
 }) {
   const [me, setMe] = useState<UserMe | null>(null);
   const [meLoading, setMeLoading] = useState(false);
@@ -84,6 +99,27 @@ function InvoiceRequestModal({
       })
       .finally(() => setMeLoading(false));
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (selectedPlan?.name === "Free") {
+      setSubject("Запрос по тарифу Free");
+      setComment(
+        "Интересует подключение тарифа Free для корпоративной почты."
+      );
+      return;
+    }
+
+    if (selectedPlan) {
+      setSubject(`Счет на тариф ${selectedPlan.limit}`);
+      setComment(`Интересует тариф ${selectedPlan.name} (${selectedPlan.limit}).`);
+      return;
+    }
+
+    setSubject("");
+    setComment("");
+  }, [open, selectedPlan]);
 
   const canSubmit = useMemo(() => {
     return (
@@ -116,6 +152,11 @@ function InvoiceRequestModal({
     if (!canSubmit || loading || !me?.email) return;
 
     const message = [
+      selectedPlan
+        ? `Выбранный тариф: ${selectedPlan.name} / ${selectedPlan.price} / ${selectedPlan.limit}`
+        : null,
+      selectedPlan ? "Срок действия тарифа: 30 календарных дней." : null,
+      "",
       "Реквизиты для выставления счета:",
       requisites.trim(),
       comment.trim() ? "" : null,
@@ -141,9 +182,7 @@ function InvoiceRequestModal({
       setSuccessText(
         `Запрос отправлен. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
       );
-      setSubject("");
       setRequisites("");
-      setComment("");
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить запрос"
@@ -178,7 +217,7 @@ function InvoiceRequestModal({
           <div className="mt-4">
             <p className="text-[15px] text-white/60">
               Укажите реквизиты компании для выставления счета. Сообщение будет
-              отправлено от вашего авторизованного аккаунта.
+              отправлено от вашего авторизованного аккаунта на info@smartoffer.pro.
             </p>
 
             <div className="mt-5 space-y-4">
@@ -288,8 +327,182 @@ function InvoiceRequestModal({
   );
 }
 
+function PlanPaymentModal({
+  open,
+  onOpenChange,
+  selectedPlan,
+  onRequestInvoice,
+}: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  selectedPlan: PricingPlan | null;
+  onRequestInvoice: (plan: PricingPlan | null) => void;
+}) {
+  const [paymentNotice, setPaymentNotice] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setPaymentNotice("");
+    }
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="
+          max-w-[760px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-7 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Цены
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="mb-4 inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Назад к тарифам
+            </button>
+
+            <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+              <div className="text-lg font-semibold text-white">
+                Выбран тариф: {selectedPlan?.name}
+              </div>
+              <div className="mt-2 text-sm text-white/70">
+                {selectedPlan?.price} · {selectedPlan?.limit}
+              </div>
+              <div className="mt-2 text-sm text-white/60">
+                Срок действия тарифа: 30 календарных дней с момента активации.
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-base font-semibold text-white mb-3">
+                Выберите способ оплаты
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPaymentNotice(
+                      "Оплата по карте будет подключена следующим этапом."
+                    )
+                  }
+                  className="
+                    rounded-xl border border-white/10 bg-white/5
+                    px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                  "
+                >
+                  <div className="text-base font-semibold text-white">
+                    Карта онлайн
+                  </div>
+                  <div className="mt-2 text-sm text-white/65">
+                    Быстрое подключение тарифа после подтверждения оплаты.
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPaymentNotice(
+                      "Оплата через СБП будет подключена следующим этапом."
+                    )
+                  }
+                  className="
+                    rounded-xl border border-white/10 bg-white/5
+                    px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                  "
+                >
+                  <div className="text-base font-semibold text-white">СБП</div>
+                  <div className="mt-2 text-sm text-white/65">
+                    Быстрый безналичный способ оплаты через банковское приложение.
+                  </div>
+                </button>
+
+                <div
+                  className="
+                    rounded-xl border border-white/10 bg-white/5
+                    px-5 py-5 text-left
+                  "
+                >
+                  <div className="text-base font-semibold text-white">
+                    Счёт для юр. лиц
+                  </div>
+                  <div className="mt-2 text-sm text-white/65">
+                    Для компаний и ИП. Реквизиты указываются в форме запроса
+                    счёта.
+                  </div>
+
+                  <div className="mt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => onRequestInvoice(selectedPlan)}
+                      className="w-full border-white/15 text-white hover:bg-white/10"
+                    >
+                      Запросить счёт
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {paymentNotice ? (
+                <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                  {paymentNotice}
+                </div>
+              ) : null}
+
+              <div className="mt-5 text-sm text-white/55">
+                Сейчас в интерфейсе подготовлен сценарий выбора тарифа и способа
+                оплаты. Интеграция онлайн-оплаты картой и через СБП подключается
+                следующим этапом.
+              </div>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function About() {
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PricingPlan | null>(null);
+
+  function handleChoosePlan(plan: PricingPlan) {
+    setSelectedPlan(plan);
+    setPaymentOpen(true);
+  }
+
+  function handleOpenInvoiceDirectly() {
+    setSelectedPlan(null);
+    setInvoiceOpen(true);
+  }
+
+  function handleRequestInvoiceFromPayment(plan: PricingPlan | null) {
+    setSelectedPlan(plan);
+    setPaymentOpen(false);
+
+    setTimeout(() => {
+      setInvoiceOpen(true);
+    }, 150);
+  }
 
   return (
     <>
@@ -327,13 +540,13 @@ export default function About() {
 
               <div className="flex flex-wrap gap-3">
                 <Button
-                  onClick={() => setInvoiceOpen(true)}
+                  onClick={handleOpenInvoiceDirectly}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 w-full sm:w-auto"
                 >
                   Запросить счет
                 </Button>
-                <Button variant="outline" asChild className="w-full sm:w-auto">
-                  <a href="#pricing">Посмотреть тарифы</a>
+                <Button variant="outline" onClick={scrollToPricing}>
+                Посмотреть тарифы
                 </Button>
               </div>
 
@@ -346,7 +559,6 @@ export default function About() {
 
           {/* TRUST / VALUE */}
           <section className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* ЛЕВАЯ КАРТОЧКА */}
             <div className="border border-border rounded-2xl bg-card p-6 flex flex-col">
               <div>
                 <div className="flex items-center gap-2 text-foreground font-medium mb-2">
@@ -374,7 +586,6 @@ export default function About() {
                   </ul>
                 </div>
 
-                {/* ✅ ДОБАВЛЕНО: Пример в цифрах */}
                 <div className="mt-5 pt-4 border-t border-border">
                   <div className="text-foreground font-medium mb-2">
                     Пример в цифрах
@@ -391,7 +602,6 @@ export default function About() {
               </div>
             </div>
 
-            {/* ЦЕНТРАЛЬНАЯ КАРТОЧКА */}
             <div className="border border-border rounded-2xl bg-card p-6">
               <div className="flex items-center gap-2 text-foreground font-medium mb-2">
                 <Zap className="w-4 h-4" />
@@ -422,7 +632,6 @@ export default function About() {
               </div>
             </div>
 
-            {/* ПРАВАЯ КАРТОЧКА */}
             <div className="border border-border rounded-2xl bg-card p-6 flex flex-col">
               <div>
                 <div className="flex items-center gap-2 text-foreground font-medium mb-2">
@@ -459,7 +668,6 @@ export default function About() {
                   </div>
                 </div>
 
-                {/* ✅ ДОБАВЛЕНО: Почему это выгодно поставщику */}
                 <div className="mt-5 pt-4 border-t border-border">
                   <div className="text-foreground font-medium mb-2">
                     Почему это выгодно поставщику
@@ -519,7 +727,7 @@ export default function About() {
           </section>
 
           {/* PRICING */}
-          <section id="pricing" className="mt-12">
+          <section id="pricing" className="mt-12 scroll-mt-24">
             <div className="mb-4">
               <h2 className="text-xl font-semibold text-foreground">Тарифы и лимиты</h2>
               <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
@@ -543,7 +751,11 @@ export default function About() {
                   </div>
 
                   <div className="mt-auto pt-5">
-                    <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+                    <Button
+                      type="button"
+                      onClick={() => handleChoosePlan(p)}
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
                       Выбрать
                     </Button>
                   </div>
@@ -595,7 +807,7 @@ export default function About() {
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <Button
-                onClick={() => setInvoiceOpen(true)}
+                onClick={handleOpenInvoiceDirectly}
                 className="bg-primary text-primary-foreground hover:bg-primary/90 w-full sm:w-auto"
               >
                 Запросить счет
@@ -608,9 +820,17 @@ export default function About() {
         </div>
       </div>
 
+      <PlanPaymentModal
+        open={paymentOpen}
+        onOpenChange={setPaymentOpen}
+        selectedPlan={selectedPlan}
+        onRequestInvoice={handleRequestInvoiceFromPayment}
+      />
+
       <InvoiceRequestModal
         open={invoiceOpen}
         onOpenChange={setInvoiceOpen}
+        selectedPlan={selectedPlan}
       />
     </>
   );

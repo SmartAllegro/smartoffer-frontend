@@ -23,10 +23,40 @@ import { sendSupportRequest } from "@/api/support";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
 type SupportStep = "chooser" | "email";
+type PricingStep = "plans" | "payment";
 
 const TELEGRAM_URL =
   import.meta.env.VITE_SUPPORT_TELEGRAM_URL ||
   "https://t.me/smartoffer_support?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%20%D0%BC%D0%B5%D0%BD%D1%8F%20%D0%B2%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BF%D0%BE%20SmartOffer.";
+
+const PRICING = [
+  {
+    name: "Free",
+    price: "0 ₽",
+    limit: "50 запросов",
+    note: "Только для корпоративной почты",
+  },
+  {
+    name: "200",
+    price: "3 000 ₽",
+    limit: "200 запросов",
+    note: "Старт для регулярных RFQ",
+  },
+  {
+    name: "500",
+    price: "5 500 ₽",
+    limit: "500 запросов",
+    note: "Оптимальный баланс",
+  },
+  {
+    name: "1000",
+    price: "9 000 ₽",
+    limit: "1000 запросов",
+    note: "Для активных закупок",
+  },
+] as const;
+
+type PricingPlan = (typeof PRICING)[number];
 
 function TelegramIcon({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -55,6 +85,497 @@ function TelegramIcon({ className = "h-8 w-8" }: { className?: string }) {
         </linearGradient>
       </defs>
     </svg>
+  );
+}
+
+function InvoiceRequestModal({
+  open,
+  onOpenChange,
+  selectedPlan,
+}: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  selectedPlan: PricingPlan | null;
+}) {
+  const [me, setMe] = useState<UserMe | null>(null);
+  const [meLoading, setMeLoading] = useState(false);
+
+  const [subject, setSubject] = useState("");
+  const [requisites, setRequisites] = useState("");
+  const [comment, setComment] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [successText, setSuccessText] = useState("");
+  const [errorText, setErrorText] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+
+    const token = getAuthToken();
+    if (!token) {
+      setMe(null);
+      return;
+    }
+
+    setMeLoading(true);
+    fetchMe()
+      .then((user) => setMe(user))
+      .catch(() => {
+        clearAuthToken();
+        setMe(null);
+      })
+      .finally(() => setMeLoading(false));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (selectedPlan?.name === "Free") {
+      setSubject("Запрос по тарифу Free");
+      setComment(
+        "Интересует подключение тарифа Free для корпоративной почты."
+      );
+      return;
+    }
+
+    if (selectedPlan) {
+      setSubject(`Счет на тариф ${selectedPlan.limit}`);
+      setComment(`Интересует тариф ${selectedPlan.name} (${selectedPlan.limit}).`);
+      return;
+    }
+
+    setSubject("");
+    setComment("");
+  }, [open, selectedPlan]);
+
+  const canSubmit = useMemo(() => {
+    return (
+      !!me?.email &&
+      subject.trim().length >= 3 &&
+      requisites.trim().length >= 10 &&
+      !loading
+    );
+  }, [me?.email, subject, requisites, loading]);
+
+  function resetState() {
+    setSubject("");
+    setRequisites("");
+    setComment("");
+    setLoading(false);
+    setSuccessText("");
+    setErrorText("");
+  }
+
+  function closeModal(next: boolean) {
+    onOpenChange(next);
+    if (!next) {
+      setTimeout(() => {
+        resetState();
+      }, 150);
+    }
+  }
+
+  async function handleSubmit() {
+    if (!canSubmit || loading || !me?.email) return;
+
+    const message = [
+      selectedPlan
+        ? `Выбранный тариф: ${selectedPlan.name} / ${selectedPlan.price} / ${selectedPlan.limit}`
+        : null,
+      selectedPlan ? "Срок действия тарифа: 30 календарных дней." : null,
+      "",
+      "Реквизиты для выставления счета:",
+      requisites.trim(),
+      comment.trim() ? "" : null,
+      comment.trim() ? "Комментарий:" : null,
+      comment.trim() ? comment.trim() : null,
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join("\n");
+
+    try {
+      setLoading(true);
+      setErrorText("");
+      setSuccessText("");
+
+      const res = await sendSupportRequest({
+        contact_email: me.email,
+        subject: subject.trim(),
+        message,
+        source: "about_invoice_request",
+        page_url: window.location.href,
+      });
+
+      setSuccessText(
+        `Запрос отправлен. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
+      );
+      setRequisites("");
+    } catch (error) {
+      setErrorText(
+        error instanceof Error ? error.message : "Не удалось отправить запрос"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={closeModal}>
+      <DialogContent
+        className="
+          max-w-[640px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-7 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Запросить счет
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="mt-4">
+            <p className="text-[15px] text-white/60">
+              Укажите реквизиты компании для выставления счета. Сообщение будет
+              отправлено от вашего авторизованного аккаунта на info@smartoffer.pro.
+            </p>
+
+            <div className="mt-5 space-y-4">
+              {meLoading ? (
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+                  Загружаем профиль...
+                </div>
+              ) : me?.email ? (
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+                  Обращение будет отправлено от авторизованного аккаунта:{" "}
+                  {me.email}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  Для отправки запроса нужно войти в аккаунт.
+                </div>
+              )}
+
+              <div>
+                <label className="mb-2 block text-sm text-white/80">Тема</label>
+                <Input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Например: Счет на тариф 500 запросов"
+                  className="h-11 border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-white/80">
+                  Реквизиты для счета
+                </label>
+                <Textarea
+                  value={requisites}
+                  onChange={(e) => setRequisites(e.target.value)}
+                  placeholder={`Укажите реквизиты компании:
+ООО / ИП
+ИНН
+КПП
+ОГРН / ОГРНИП
+Юридический адрес
+Почта для документов
+Телефон
+Банк
+р/с
+к/с
+БИК`}
+                  className="min-h-[190px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-white/80">
+                  Комментарий
+                  <span className="ml-1 text-white/45">(необязательно)</span>
+                </label>
+                <Textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Можно указать нужный тариф, количество запросов или дополнительные пожелания"
+                  className="min-h-[110px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                />
+              </div>
+
+              {errorText ? (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  {errorText}
+                </div>
+              ) : null}
+
+              {successText ? (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                  {successText}
+                </div>
+              ) : null}
+
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!canSubmit || loading || meLoading}
+                  className="h-11 min-w-[220px] bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Отправка...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" />
+                      Отправить запрос
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              <div className="text-sm text-white/55">
+                Мы ответим в течение рабочего дня и подготовим счет по указанным
+                реквизитам.
+              </div>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PricingModal({
+  open,
+  onOpenChange,
+  onRequestInvoice,
+}: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  onRequestInvoice: (plan: PricingPlan | null) => void;
+}) {
+  const [step, setStep] = useState<PricingStep>("plans");
+  const [selectedPlan, setSelectedPlan] = useState<PricingPlan | null>(null);
+  const [paymentNotice, setPaymentNotice] = useState("");
+
+  function resetState() {
+    setStep("plans");
+    setSelectedPlan(null);
+    setPaymentNotice("");
+  }
+
+  function closeModal(next: boolean) {
+    onOpenChange(next);
+    if (!next) {
+      setTimeout(() => {
+        resetState();
+      }, 150);
+    }
+  }
+
+  function handleChoosePlan(plan: PricingPlan) {
+    setSelectedPlan(plan);
+    setPaymentNotice("");
+    setStep("payment");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={closeModal}>
+      <DialogContent
+        className="
+          max-w-[760px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-7 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Цены
+            </DialogTitle>
+          </DialogHeader>
+
+          {step === "plans" ? (
+            <div className="mt-4">
+              <p className="text-[15px] text-white/65 leading-relaxed">
+                SmartOffer тарифицируется по объёму полезного результата. Каждый
+                тариф действует 30 календарных дней с момента активации.
+              </p>
+
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {PRICING.map((plan) => (
+                  <div
+                    key={plan.name}
+                    className="border border-white/10 rounded-2xl bg-white/5 p-6 flex flex-col min-h-[230px]"
+                  >
+                    <div>
+                      <div className="text-sm text-white/55">{plan.name}</div>
+                      <div className="text-2xl font-semibold text-white mt-2">
+                        {plan.price}
+                      </div>
+                      <div className="mt-2 text-sm text-white">{plan.limit}</div>
+                      <div className="mt-3 text-xs text-white/55">{plan.note}</div>
+                    </div>
+
+                    <div className="mt-auto pt-5">
+                      <Button
+                        type="button"
+                        onClick={() => handleChoosePlan(plan)}
+                        className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                      >
+                        Выбрать
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-5">
+                <div className="text-base font-semibold text-white mb-3">
+                  Способы оплаты
+                </div>
+
+                <ul className="list-disc pl-5 space-y-2 text-sm leading-relaxed text-white/70">
+                  <li>По счёту для юридических лиц и ИП</li>
+                  <li>Оплата картой онлайн</li>
+                  <li>Оплата через СБП</li>
+                </ul>
+
+                <div className="mt-4 text-sm text-white/60">
+                  Free доступен только для корпоративной почты после авторизации и
+                  верификации почты в сервисе. Для личной почты доступны только
+                  платные тарифы.
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setPaymentNotice("");
+                  setStep("plans");
+                }}
+                className="mb-4 inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Назад к тарифам
+              </button>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+                <div className="text-lg font-semibold text-white">
+                  Выбран тариф: {selectedPlan?.name}
+                </div>
+                <div className="mt-2 text-sm text-white/70">
+                  {selectedPlan?.price} · {selectedPlan?.limit}
+                </div>
+                <div className="mt-2 text-sm text-white/60">
+                  Срок действия тарифа: 30 календарных дней с момента активации.
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="text-base font-semibold text-white mb-3">
+                  Выберите способ оплаты
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPaymentNotice(
+                        "Оплата по карте будет подключена следующим этапом."
+                      )
+                    }
+                    className="
+                      rounded-xl border border-white/10 bg-white/5
+                      px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                    "
+                  >
+                    <div className="text-base font-semibold text-white">
+                      Карта онлайн
+                    </div>
+                    <div className="mt-2 text-sm text-white/65">
+                      Быстрое подключение тарифа после подтверждения оплаты.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPaymentNotice(
+                        "Оплата через СБП будет подключена следующим этапом."
+                      )
+                    }
+                    className="
+                      rounded-xl border border-white/10 bg-white/5
+                      px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                    "
+                  >
+                    <div className="text-base font-semibold text-white">СБП</div>
+                    <div className="mt-2 text-sm text-white/65">
+                      Быстрый безналичный способ оплаты через банковское приложение.
+                    </div>
+                  </button>
+
+                  <div
+                    className="
+                      rounded-xl border border-white/10 bg-white/5
+                      px-5 py-5 text-left
+                    "
+                  >
+                    <div className="text-base font-semibold text-white">
+                      Счёт для юр. лиц
+                    </div>
+                    <div className="mt-2 text-sm text-white/65">
+                      Для компаний и ИП. Реквизиты указываются в форме запроса
+                      счёта.
+                    </div>
+
+                    <div className="mt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => onRequestInvoice(selectedPlan)}
+                        className="w-full border-white/15 text-white hover:bg-white/10"
+                      >
+                        Запросить счёт
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {paymentNotice ? (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                    {paymentNotice}
+                  </div>
+                ) : null}
+
+                <div className="mt-5 text-sm text-white/55">
+                  Сейчас в интерфейсе подготовлен сценарий выбора тарифа и способа
+                  оплаты. Интеграция онлайн-оплаты картой и через СБП подключается
+                  следующим этапом.
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -95,7 +616,11 @@ function SupportModal({
   }, [open]);
 
   const canSubmit = useMemo(() => {
-    return !!me?.email && subject.trim().length >= 3 && message.trim().length >= 10;
+    return (
+      !!me?.email &&
+      subject.trim().length >= 3 &&
+      message.trim().length >= 10
+    );
   }, [me?.email, subject, message]);
 
   function resetState() {
@@ -125,18 +650,18 @@ function SupportModal({
       setSuccessText("");
 
       const res = await sendSupportRequest({
-  contact_email: me.email,
-  subject: subject.trim(),
-  message: message.trim(),
-  source: "footer_modal",
-  page_url: window.location.href,
-});
+        contact_email: me.email,
+        subject: subject.trim(),
+        message: message.trim(),
+        source: "footer_modal",
+        page_url: window.location.href,
+      });
 
-setSuccessText(
-  `Сообщение отправлено. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
-);
-setSubject("");
-setMessage("");
+      setSuccessText(
+        `Сообщение отправлено. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
+      );
+      setSubject("");
+      setMessage("");
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить обращение"
@@ -259,7 +784,8 @@ setMessage("");
                   </div>
                 ) : me?.email ? (
                   <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
-                    Обращение будет отправлено от авторизованного аккаунта: {me.email}
+                    Обращение будет отправлено от авторизованного аккаунта:{" "}
+                    {me.email}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -336,6 +862,18 @@ setMessage("");
 
 export function Footer() {
   const [supportOpen, setSupportOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoicePlan, setInvoicePlan] = useState<PricingPlan | null>(null);
+
+  function handleRequestInvoiceFromPricing(plan: PricingPlan | null) {
+    setInvoicePlan(plan);
+    setPricingOpen(false);
+
+    setTimeout(() => {
+      setInvoiceOpen(true);
+    }, 150);
+  }
 
   return (
     <>
@@ -367,12 +905,13 @@ export function Footer() {
                   </button>
                 </li>
                 <li>
-                  <a
-                    href="#pricing"
-                    className="text-muted-foreground hover:text-primary"
+                  <button
+                    type="button"
+                    onClick={() => setPricingOpen(true)}
+                    className="text-muted-foreground hover:text-primary transition-colors"
                   >
                     Цены
-                  </a>
+                  </button>
                 </li>
                 <li>
                   <Link
@@ -473,6 +1012,16 @@ export function Footer() {
       </footer>
 
       <SupportModal open={supportOpen} onOpenChange={setSupportOpen} />
+      <PricingModal
+        open={pricingOpen}
+        onOpenChange={setPricingOpen}
+        onRequestInvoice={handleRequestInvoiceFromPricing}
+      />
+      <InvoiceRequestModal
+        open={invoiceOpen}
+        onOpenChange={setInvoiceOpen}
+        selectedPlan={invoicePlan}
+      />
     </>
   );
 }
