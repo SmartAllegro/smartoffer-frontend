@@ -1,6 +1,20 @@
-﻿export default function EmailVerification() {
+﻿import { Link } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+
+import { Button } from "@/shared/ui/button";
+
+export default function EmailVerification() {
   return (
     <main className="max-w-3xl mx-auto px-6 py-10">
+      <div className="mb-6">
+        <Button asChild variant="outline" className="gap-2">
+          <Link to="/">
+            <ArrowLeft className="w-4 h-4" />
+            На главную
+          </Link>
+        </Button>
+      </div>
+
       <h1 className="text-2xl font-semibold text-foreground">
         Верификация почты и пароль приложения (SMTP)
       </h1>
