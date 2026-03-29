@@ -222,7 +222,11 @@ function InvoiceRequestModal({
     <Dialog open={open} onOpenChange={closeModal}>
       <DialogContent
         className="
+          w-[calc(100vw-16px)]
+          sm:w-full
           max-w-[640px]
+          max-h-[90vh]
+          overflow-hidden
           rounded-xl
           border border-white/10
           bg-card
@@ -233,7 +237,7 @@ function InvoiceRequestModal({
           [&_[data-radix-dialog-close]]:hover:text-white
         "
       >
-        <div className="rounded-xl px-7 py-6">
+        <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
           <DialogHeader className="space-y-0 text-left">
             <DialogTitle className="text-[22px] font-semibold text-white">
               Запросить счет
@@ -391,7 +395,11 @@ function PricingModal({
     <Dialog open={open} onOpenChange={closeModal}>
       <DialogContent
         className="
+          w-[calc(100vw-16px)]
+          sm:w-full
           max-w-[760px]
+          max-h-[90vh]
+          overflow-hidden
           rounded-xl
           border border-white/10
           bg-card
@@ -402,7 +410,7 @@ function PricingModal({
           [&_[data-radix-dialog-close]]:hover:text-white
         "
       >
-        <div className="rounded-xl px-7 py-6">
+        <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
           <DialogHeader className="space-y-0 text-left">
             <DialogTitle className="text-[22px] font-semibold text-white">
               Цены
