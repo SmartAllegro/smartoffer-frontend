@@ -22,13 +22,13 @@ export function BillingCounter({
     : billing?.current_plan_name || "Тариф";
 
   const value = !isAuthenticated
-    ? "Войдите"
+    ? "0/0"
     : loading
       ? "Загрузка..."
       : `${remaining} / ${limit}`;
 
   const hint = !isAuthenticated
-    ? "Авторизация"
+    ? "Пройдите авторизацию"
     : billing?.email_domain_type === "corporate"
       ? "Corporate"
       : billing?.email_domain_type === "public"
