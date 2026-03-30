@@ -382,7 +382,7 @@ export default function Index() {
                   </div>
                 </div>
 
-                <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-[38px] lg:flex-col lg:items-end lg:gap-3">
+                <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-[62px] lg:flex-col lg:items-end lg:gap-3">
                   <BillingCounter
                     billing={billing}
                     loading={billingLoading}
