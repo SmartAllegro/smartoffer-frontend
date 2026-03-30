@@ -28,7 +28,7 @@ export function BillingCounter({
       : `${remaining} / ${limit}`;
 
   const hint = !isAuthenticated
-    ? "Пройдите авторизацию"
+    ? "Настройте почту"
     : billing?.email_domain_type === "corporate"
       ? "Corporate"
       : billing?.email_domain_type === "public"
