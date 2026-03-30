@@ -123,6 +123,8 @@ export function SettingsModal({
 
   const [smtpConsentLocked, setSmtpConsentLocked] = React.useState(false);
   const [termsAcceptedLocked, setTermsAcceptedLocked] = React.useState(false);
+  const [offerAccepted, setOfferAccepted] = React.useState(false);
+  const [offerAcceptedLocked, setOfferAcceptedLocked] = React.useState(false);
 
   const [meEmail, setMeEmail] = React.useState<string>("");
 
@@ -184,6 +186,8 @@ export function SettingsModal({
     setTermsAccepted(false);
     setSmtpConsentLocked(false);
     setTermsAcceptedLocked(false);
+    setOfferAccepted(false);
+    setOfferAcceptedLocked(false);
     setSmtpStatus({ state: "idle" });
 
     fetchMe()
@@ -214,12 +218,15 @@ export function SettingsModal({
 
         const personalAccepted = Boolean(s.personal_data_consent_accepted);
         const termsAcceptedServer = Boolean(s.terms_accepted);
+        const offerAcceptedServer = Boolean(s.offer_accepted);
 
         setSmtpConsentChecked(personalAccepted);
         setTermsAccepted(termsAcceptedServer);
+        setOfferAccepted(offerAcceptedServer);
 
         setSmtpConsentLocked(personalAccepted);
         setTermsAcceptedLocked(termsAcceptedServer);
+        setOfferAcceptedLocked(offerAcceptedServer);
       })
       .catch(() => {
         // ок, если ещё не настроено
@@ -272,6 +279,21 @@ export function SettingsModal({
       });
       return;
     }
+
+if (!offerAccepted) {
+  setExpanded("auth");
+  setSmtpStatus({
+    state: "error",
+    message:
+      "Для сохранения SMTP-настроек необходимо принять публичную оферту.",
+  });
+  toast({
+    title: "Примите публичную оферту",
+    description: "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
+    variant: "destructive",
+  });
+  return;
+}
 
     if (!meEmail) {
       toast({
@@ -332,12 +354,15 @@ export function SettingsModal({
         from_email: meEmail,
         personal_data_consent_accepted: smtpConsentChecked,
         terms_accepted: termsAccepted,
+        offer_accepted: offerAccepted,
       } as any);
 
       setSmtpConsentChecked(true);
       setTermsAccepted(true);
       setSmtpConsentLocked(true);
       setTermsAcceptedLocked(true);
+      setOfferAccepted(true);
+      setOfferAcceptedLocked(true);
 
       setSmtpStatus({
         state: "ok",
@@ -561,6 +586,41 @@ export function SettingsModal({
                     </div>
                   </div>
                 </div>
+
+<div className="flex items-start gap-3">
+  <Checkbox
+    id="smtp-offer-acceptance"
+    checked={offerAccepted}
+    onCheckedChange={(checked) => setOfferAccepted(checked === true)}
+    disabled={saving || offerAcceptedLocked}
+    className="mt-0.5"
+  />
+
+  <div className="space-y-2">
+    <Label
+      htmlFor="smtp-offer-acceptance"
+      className="text-sm leading-5 cursor-pointer"
+    >
+      Я принимаю публичную оферту.
+    </Label>
+
+    <p className="text-xs text-muted-foreground leading-relaxed">
+      {offerAcceptedLocked
+        ? "Принятие публичной оферты уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+        : "Без этой галочки сервис не сохранит SMTP-настройки."}
+    </p>
+
+    <Link
+      to="/offer"
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+    >
+      Открыть публичную оферту
+      <ExternalLink className="w-3.5 h-3.5" />
+    </Link>
+  </div>
+</div>
 
                 {smtpStatus.state !== "idle" && (
                   <div
