@@ -51,6 +51,36 @@ function mapResultsToSuppliers(results: BackendResult[], requestId: string): Sup
   }));
 }
 
+function normalizeApiError(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error("Произошла ошибка");
+  }
+
+  const raw = error.message || "";
+  const match = raw.match(/^API error \d+:\s*([\s\S]+)$/);
+
+  if (!match) {
+    return error;
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]);
+    const detail = parsed?.detail;
+
+    if (typeof detail === "string" && detail.trim()) {
+      return new Error(detail.trim());
+    }
+
+    if (detail && typeof detail === "object" && typeof detail.message === "string") {
+      return new Error(detail.message);
+    }
+  } catch {
+    // ignore JSON parse errors
+  }
+
+  return error;
+}
+
 async function submitSearch(query: string): Promise<SearchSubmitResponse> {
   return apiFetch<SearchSubmitResponse>("/search/submit", {
     method: "POST",
@@ -74,37 +104,41 @@ export async function searchSuppliers(
   query: string,
   requestId: string
 ): Promise<{ jobId: number | null; suppliers: Supplier[]; noSuppliersFound: boolean }> {
-  const submitted = await submitSearch(query);
-  const jobId = typeof submitted.job_id === "number" ? submitted.job_id : null;
+  try {
+    const submitted = await submitSearch(query);
+    const jobId = typeof submitted.job_id === "number" ? submitted.job_id : null;
 
-  if (!jobId) {
-    throw new Error("Не удалось создать задачу поиска");
-  }
-
-  let lastStatus: SearchJobStatusResponse["status"] = submitted.status || "queued";
-
-  for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-    const job = await getSearchJob(jobId);
-    lastStatus = job.status;
-
-    if (job.status === "completed") {
-  const suppliers = mapResultsToSuppliers(job.results || [], requestId);
-
-  return {
-    jobId,
-    suppliers,
-    noSuppliersFound: suppliers.length === 0,
-  };
-}
-
-    if (job.status === "failed") {
-      throw new Error(job.error_message || "Поиск завершился с ошибкой");
+    if (!jobId) {
+      throw new Error("Не удалось создать задачу поиска");
     }
 
-    await sleep(POLL_INTERVAL_MS);
-  }
+    let lastStatus: SearchJobStatusResponse["status"] = submitted.status || "queued";
 
-  throw new Error(
-    `Поиск выполняется дольше обычного (статус: ${lastStatus}). Он может завершиться позже — проверьте историю.`
-  );
+    for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+      const job = await getSearchJob(jobId);
+      lastStatus = job.status;
+
+      if (job.status === "completed") {
+        const suppliers = mapResultsToSuppliers(job.results || [], requestId);
+
+        return {
+          jobId,
+          suppliers,
+          noSuppliersFound: suppliers.length === 0,
+        };
+      }
+
+      if (job.status === "failed") {
+        throw new Error(job.error_message || "Поиск завершился с ошибкой");
+      }
+
+      await sleep(POLL_INTERVAL_MS);
+    }
+
+    throw new Error(
+      `Поиск выполняется дольше обычного (статус: ${lastStatus}). Он может завершиться позже — проверьте историю.`
+    );
+  } catch (error) {
+    throw normalizeApiError(error);
+  }
 }

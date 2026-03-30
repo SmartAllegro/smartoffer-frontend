@@ -1,4 +1,4 @@
-import * as React from "react";
+﻿import * as React from "react";
 import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
@@ -14,6 +14,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Trash2,
+  Wallet,
+  ShieldCheck,
+  Clock3,
 } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 
@@ -25,6 +28,12 @@ import {
   getEmailSettings,
   type EmailProviderPreset,
 } from "@/api/email";
+import {
+  fetchBillingMe,
+  fetchBillingPlans,
+  type BillingMe,
+  type BillingPlanItem,
+} from "@/api/billing";
 import { clearAuthToken } from "@/shared/utils/auth";
 
 export const STORAGE_KEY = "smartoffer.settings";
@@ -66,6 +75,28 @@ function normalizeSecurity(v: string): "ssl" | "starttls" {
   return v === "starttls" ? "starttls" : "ssl";
 }
 
+function getBillingStatusLabel(status?: string) {
+  if (status === "active") return "Поиск доступен";
+  if (status === "exhausted") return "Лимит исчерпан";
+  return "Поиск заблокирован";
+}
+
+function getDomainTypeLabel(domainType?: string) {
+  if (domainType === "corporate") return "Корпоративная почта";
+  if (domainType === "public") return "Личная почта";
+  return "Почта не подтверждена";
+}
+
+function getBillingTone(status?: string, remaining?: number) {
+  if (status !== "active" || (remaining ?? 0) <= 0) {
+    return "border-destructive/30 bg-destructive/10";
+  }
+  if ((remaining ?? 0) <= 10) {
+    return "border-yellow-500/30 bg-yellow-500/10";
+  }
+  return "border-primary/20 bg-primary/5";
+}
+
 export function SettingsModal({
   open,
   onOpenChange,
@@ -77,7 +108,10 @@ export function SettingsModal({
 }) {
   const { toast } = useToast();
 
-  const [expanded, setExpanded] = React.useState<"auth" | "template" | "danger" | null>("auth");
+  const [expanded, setExpanded] = React.useState<
+    "auth" | "billing" | "template" | "danger" | null
+  >("auth");
+
   const [state, setState] = React.useState<SettingsState>(() => loadSettings());
 
   const [providers, setProviders] = React.useState<EmailProviderPreset[]>([]);
@@ -97,7 +131,11 @@ export function SettingsModal({
   const [deletingAccount, setDeletingAccount] = React.useState(false);
 
   const [loadingProviders, setLoadingProviders] = React.useState(false);
+  const [loadingBilling, setLoadingBilling] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+
+  const [billing, setBilling] = React.useState<BillingMe | null>(null);
+  const [billingPlans, setBillingPlans] = React.useState<BillingPlanItem[]>([]);
 
   const [smtpStatus, setSmtpStatus] = React.useState<
     { state: "idle" | "ok" | "error"; message?: string }
@@ -112,6 +150,27 @@ export function SettingsModal({
     meEmail.trim().length > 0 &&
     deleteConfirmEmail.trim().toLowerCase() === meEmail.trim().toLowerCase() &&
     deletePassword.trim().length > 0;
+
+  const currentPlanCode = billing?.current_plan_code ?? null;
+  const requestsRemaining = Math.max(Number(billing?.requests_remaining ?? 0), 0);
+  const requestsLimit = Math.max(Number(billing?.requests_limit ?? 0), 0);
+
+  const refreshBilling = React.useCallback(async () => {
+    try {
+      setLoadingBilling(true);
+      const [billingMe, plansRes] = await Promise.all([
+        fetchBillingMe(),
+        fetchBillingPlans(),
+      ]);
+      setBilling(billingMe);
+      setBillingPlans(Array.isArray(plansRes?.items) ? plansRes.items : []);
+    } catch {
+      setBilling(null);
+      setBillingPlans([]);
+    } finally {
+      setLoadingBilling(false);
+    }
+  }, []);
 
   React.useEffect(() => {
     if (!open) return;
@@ -165,7 +224,9 @@ export function SettingsModal({
       .catch(() => {
         // ок, если ещё не настроено
       });
-  }, [open, toast]);
+
+    void refreshBilling();
+  }, [open, toast, refreshBilling]);
 
   const setTemplate = (template: string) => setState((s) => ({ ...s, template }));
   const handleResetTemplate = () => setTemplate(DEFAULT_TEMPLATE);
@@ -283,6 +344,9 @@ export function SettingsModal({
         message: "SMTP настроен и подтверждён",
       });
 
+      await refreshBilling();
+      setExpanded("billing");
+
       toast({
         title: "Почта настроена",
         description: "Настройки SMTP и юридические подтверждения сохранены.",
@@ -351,286 +415,422 @@ export function SettingsModal({
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-4">
           <div className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setExpanded((p) => (p === "auth" ? null : "auth"))}
-            className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
-          >
-            <span className="flex items-center gap-2 font-medium">
-              <Mail className="h-4 w-4 text-muted-foreground" />
-              Настройка почты (SMTP)
-            </span>
-            <ChevronDown
-              className={`h-4 w-4 transition-transform ${expanded === "auth" ? "rotate-180" : ""}`}
-            />
-          </button>
+            <button
+              type="button"
+              onClick={() => setExpanded((p) => (p === "auth" ? null : "auth"))}
+              className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                Настройка почты (SMTP)
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${expanded === "auth" ? "rotate-180" : ""}`}
+              />
+            </button>
 
-          {expanded === "auth" && (
-            <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-              <div className="space-y-2">
-                <Label>Ваш email</Label>
-                <Input value={meEmail || "—"} readOnly disabled className="opacity-80" />
-                <p className="text-xs text-muted-foreground">
-                  Для проверки будет отправлено тестовое письмо на этот адрес.
-                </p>
-              </div>
+            {expanded === "auth" && (
+              <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+                <div className="space-y-2">
+                  <Label>Ваш email</Label>
+                  <Input value={meEmail || "—"} readOnly disabled className="opacity-80" />
+                  <p className="text-xs text-muted-foreground">
+                    Для проверки будет отправлено тестовое письмо на этот адрес.
+                  </p>
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="provider">Провайдер почты</Label>
-                <select
-                  id="provider"
-                  value={providerId}
-                  onChange={(e) => setProviderId(e.target.value)}
-                  disabled={loadingProviders || saving}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">Выберите провайдера…</option>
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.title}
-                    </option>
-                  ))}
-                </select>
-
-                {selectedProvider?.app_password_url && (
-                  <a
-                    href={selectedProvider.app_password_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                <div className="space-y-2">
+                  <Label htmlFor="provider">Провайдер почты</Label>
+                  <select
+                    id="provider"
+                    value={providerId}
+                    onChange={(e) => setProviderId(e.target.value)}
+                    disabled={loadingProviders || saving}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    Как получить пароль приложения
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                )}
+                    <option value="">Выберите провайдера…</option>
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
 
-                <p className="text-xs text-muted-foreground">
-                  Выберите провайдера, перейдите по инструкции, создайте пароль приложения и вставьте его ниже.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="app-pass">Пароль приложения</Label>
-                <Input
-                  id="app-pass"
-                  value={appPassword}
-                  onChange={(e) => setAppPassword(e.target.value)}
-                  placeholder="Вставьте пароль приложения"
-                  type="password"
-                  disabled={saving}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Пароль приложения не сохраняется в браузере. Он отправляется на сервер для
-                  верификации и хранения в зашифрованном виде.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="smtp-personal-data-consent"
-                    checked={smtpConsentChecked}
-                    onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
-                    disabled={saving || smtpConsentLocked}
-                    className="mt-0.5"
-                  />
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="smtp-personal-data-consent"
-                      className="text-sm leading-5 cursor-pointer"
-                    >
-                      Я даю согласие на обработку персональных данных,
-                      необходимых для настройки SMTP и отправки писем через SmartOffer.
-                    </Label>
-
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {smtpConsentLocked
-                        ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-                        : "Без этой галочки сервис не сохранит SMTP-настройки."}
-                    </p>
-
-                    <Link
-                      to="/personal-data-consent"
+                  {selectedProvider?.app_password_url && (
+                    <a
+                      href={selectedProvider.app_password_url}
                       target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                     >
-                      Открыть текст согласия
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </Link>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="smtp-terms-acceptance"
-                    checked={termsAccepted}
-                    onCheckedChange={(checked) => setTermsAccepted(checked === true)}
-                    disabled={saving || termsAcceptedLocked}
-                    className="mt-0.5"
-                  />
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="smtp-terms-acceptance"
-                      className="text-sm leading-5 cursor-pointer"
-                    >
-                      Я принимаю пользовательское соглашение.
-                    </Label>
-
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {termsAcceptedLocked
-                        ? "Принятие пользовательского соглашения уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-                        : "Без этой галочки сервис не сохранит SMTP-настройки."}
-                    </p>
-
-                    <Link
-                      to="/terms"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
-                    >
-                      Открыть пользовательское соглашение
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </Link>
-                  </div>
-                </div>
-              </div>
-
-              {smtpStatus.state !== "idle" && (
-                <div
-                  className={`rounded-lg border p-3 text-sm flex items-start gap-2 ${
-                    smtpStatus.state === "ok"
-                      ? "border-success/40 bg-success/10 text-foreground"
-                      : "border-destructive/40 bg-destructive/10 text-foreground"
-                  }`}
-                >
-                  {smtpStatus.state === "ok" ? (
-                    <CheckCircle2 className="w-4 h-4 mt-0.5 text-success" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 mt-0.5 text-destructive" />
+                      Как получить пароль приложения
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
                   )}
-                  <div>
-                    <div className="font-medium">
-                      {smtpStatus.state === "ok" ? "Почта настроена" : "Проблема с настройкой"}
+
+                  <p className="text-xs text-muted-foreground">
+                    Выберите провайдера, перейдите по инструкции, создайте пароль приложения и вставьте его ниже.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="app-pass">Пароль приложения</Label>
+                  <Input
+                    id="app-pass"
+                    value={appPassword}
+                    onChange={(e) => setAppPassword(e.target.value)}
+                    placeholder="Вставьте пароль приложения"
+                    type="password"
+                    disabled={saving}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Пароль приложения не сохраняется в браузере. Он отправляется на сервер для
+                    верификации и хранения в зашифрованном виде.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id="smtp-personal-data-consent"
+                      checked={smtpConsentChecked}
+                      onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
+                      disabled={saving || smtpConsentLocked}
+                      className="mt-0.5"
+                    />
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="smtp-personal-data-consent"
+                        className="text-sm leading-5 cursor-pointer"
+                      >
+                        Я даю согласие на обработку персональных данных,
+                        необходимых для настройки SMTP и отправки писем через SmartOffer.
+                      </Label>
+
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {smtpConsentLocked
+                          ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+                          : "Без этой галочки сервис не сохранит SMTP-настройки."}
+                      </p>
+
+                      <Link
+                        to="/personal-data-consent"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+                      >
+                        Открыть текст согласия
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Link>
                     </div>
-                    {smtpStatus.message && (
-                      <div className="text-muted-foreground">{smtpStatus.message}</div>
-                    )}
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id="smtp-terms-acceptance"
+                      checked={termsAccepted}
+                      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                      disabled={saving || termsAcceptedLocked}
+                      className="mt-0.5"
+                    />
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="smtp-terms-acceptance"
+                        className="text-sm leading-5 cursor-pointer"
+                      >
+                        Я принимаю пользовательское соглашение.
+                      </Label>
+
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {termsAcceptedLocked
+                          ? "Принятие пользовательского соглашения уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+                          : "Без этой галочки сервис не сохранит SMTP-настройки."}
+                      </p>
+
+                      <Link
+                        to="/terms"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+                      >
+                        Открыть пользовательское соглашение
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
 
-          <button
-            type="button"
-            onClick={() => setExpanded((p) => (p === "template" ? null : "template"))}
-            className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
-          >
-            <span className="flex items-center gap-2 font-medium">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              Настройка шаблона запроса
-            </span>
-            <ChevronDown
-              className={`h-4 w-4 transition-transform ${expanded === "template" ? "rotate-180" : ""}`}
-            />
-          </button>
-
-          {expanded === "template" && (
-            <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="template">Шаблон письма</Label>
-                <Textarea
-  id="template"
-  className="min-h-[180px] resize-y bg-background text-foreground leading-6 font-normal tracking-normal [text-shadow:none] [filter:none]"
-  style={{
-    WebkitFontSmoothing: "antialiased",
-    MozOsxFontSmoothing: "grayscale",
-    textShadow: "none",
-    filter: "none",
-  }}
-  value={state.template}
-  onChange={(e) => setTemplate(e.target.value)}
-/>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-  Для ускорения коммуникации советуем указать реквизиты компании в подписи к письму при необходимости.
-                </p>
+                {smtpStatus.state !== "idle" && (
+                  <div
+                    className={`rounded-lg border p-3 text-sm flex items-start gap-2 ${
+                      smtpStatus.state === "ok"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-foreground"
+                        : "border-destructive/40 bg-destructive/10 text-foreground"
+                    }`}
+                  >
+                    {smtpStatus.state === "ok" ? (
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 text-emerald-400" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 mt-0.5 text-destructive" />
+                    )}
+                    <div>
+                      <div className="font-medium">
+                        {smtpStatus.state === "ok" ? "Почта настроена" : "Проблема с настройкой"}
+                      </div>
+                      {smtpStatus.message && (
+                        <div className="text-muted-foreground">{smtpStatus.message}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
+            )}
 
-              <div className="flex items-center justify-between gap-2">
-                <Button variant="secondary" onClick={handleResetTemplate}>
-                  Сбросить шаблон
+            <button
+              type="button"
+              onClick={() => setExpanded((p) => (p === "billing" ? null : "billing"))}
+              className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                Тариф и лимиты
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${expanded === "billing" ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {expanded === "billing" && (
+              <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+                {loadingBilling ? (
+                  <div className="text-sm text-muted-foreground">Загрузка данных по тарифу...</div>
+                ) : !billing ? (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-muted-foreground">
+                    Не удалось загрузить данные по тарифу. Попробуйте открыть окно заново.
+                  </div>
+                ) : (
+                  <>
+                    <div className={`rounded-lg border p-4 ${getBillingTone(billing.status, billing.requests_remaining)}`}>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Текущий тариф
+                          </div>
+                          <div className="text-lg font-semibold text-foreground">
+                            {billing.current_plan_name || "Не активирован"}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Остаток запросов
+                          </div>
+                          <div className="text-2xl font-bold text-foreground">
+                            {requestsRemaining} / {requestsLimit}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Статус доступа
+                          </div>
+                          <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                            <Clock3 className="h-4 w-4 text-primary" />
+                            {getBillingStatusLabel(billing.status)}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Почта
+                          </div>
+                          <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                            <ShieldCheck className="h-4 w-4 text-primary" />
+                            {getDomainTypeLabel(billing.email_domain_type)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                        {billing.has_verified_email ? (
+                          <>
+                            Подтвержденный email:{" "}
+                            <span className="text-foreground">{billing.verified_from_email}</span>
+                          </>
+                        ) : (
+                          "Чтобы получить Free 50, подключите и подтвердите корпоративную почту в блоке SMTP."
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium text-foreground">Доступные тарифы</div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {billingPlans.map((plan) => {
+                          const isCurrent = currentPlanCode === plan.code;
+                          const isDisabled = plan.corporate_only && billing?.email_domain_type !== "corporate";
+
+                          return (
+                            <div
+                              key={plan.code}
+                              className={`rounded-lg border p-4 ${
+                                isCurrent
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border bg-background"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold text-foreground">
+                                    {plan.name}
+                                  </div>
+                                  <div className="mt-1 text-xs text-muted-foreground">
+                                    {plan.requests_limit} запросов
+                                  </div>
+                                </div>
+
+                                {isCurrent ? (
+                                  <span className="text-[11px] rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-primary">
+                                    Текущий
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-4 text-lg font-bold text-foreground">
+                                {plan.is_free ? "0 ₽" : `${plan.price_rub.toLocaleString("ru-RU")} ₽`}
+                              </div>
+
+                              <div className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                                {plan.corporate_only
+                                  ? "Доступен только после подтверждения корпоративной почты."
+                                  : "Платный тариф. Подключение оплаты будет доступно на следующем этапе."}
+                              </div>
+
+                              {isDisabled ? (
+                                <div className="mt-3 text-xs text-yellow-300/80">
+                                  Для этого тарифа требуется подходящий тип доступа.
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setExpanded((p) => (p === "template" ? null : "template"))}
+              className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                Настройка шаблона запроса
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${expanded === "template" ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {expanded === "template" && (
+              <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="template">Шаблон письма</Label>
+                  <Textarea
+                    id="template"
+                    className="min-h-[180px] resize-y bg-background text-foreground leading-6 font-normal tracking-normal [text-shadow:none] [filter:none]"
+                    style={{
+                      WebkitFontSmoothing: "antialiased",
+                      MozOsxFontSmoothing: "grayscale",
+                      textShadow: "none",
+                      filter: "none",
+                    }}
+                    value={state.template}
+                    onChange={(e) => setTemplate(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Для ускорения коммуникации советуем указать реквизиты компании в подписи к письму при необходимости.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <Button variant="secondary" onClick={handleResetTemplate}>
+                    Сбросить шаблон
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setExpanded((p) => (p === "danger" ? null : "danger"))}
+              className="w-full flex items-center justify-between rounded-lg border border-destructive/30 bg-card px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2 font-medium text-destructive">
+                <Trash2 className="h-4 w-4" />
+                Удаление аккаунта
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${expanded === "danger" ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {expanded === "danger" && (
+              <div className="rounded-lg border border-destructive/30 bg-card p-4 space-y-4">
+                <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-muted-foreground leading-relaxed">
+                  Это необратимое действие. Будут удалены аккаунт, SMTP-настройки, история поисков и связанные данные.
+                  Для операционных резервных копий и иных обязательных исключений ориентируйтесь на политику хранения данных и обращения в поддержку.
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="delete-confirm-email">Введите email аккаунта для подтверждения</Label>
+                  <Input
+                    id="delete-confirm-email"
+                    value={deleteConfirmEmail}
+                    onChange={(e) => setDeleteConfirmEmail(e.target.value)}
+                    placeholder={meEmail || "email аккаунта"}
+                    autoComplete="email"
+                    disabled={deletingAccount}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="delete-password">Введите пароль аккаунта</Label>
+                  <Input
+                    id="delete-password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="Пароль аккаунта"
+                    type="password"
+                    autoComplete="current-password"
+                    disabled={deletingAccount}
+                  />
+                </div>
+
+                <div className="text-xs text-muted-foreground leading-relaxed">
+                  Для соответствия 152-ФЗ пользователь может инициировать удаление аккаунта самостоятельно.
+                  Если нужен отдельный запрос по данным без удаления аккаунта, используйте{" "}
+                  <a href="mailto:support@smartoffer.pro" className="text-primary hover:underline">
+                    support@smartoffer.pro
+                  </a>.
+                </div>
+
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  onClick={handleDeleteAccount}
+                  disabled={!canDeleteAccount || deletingAccount}
+                >
+                  {deletingAccount ? "Удаляем аккаунт…" : "Удалить аккаунт"}
                 </Button>
               </div>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setExpanded((p) => (p === "danger" ? null : "danger"))}
-            className="w-full flex items-center justify-between rounded-lg border border-destructive/30 bg-card px-4 py-3 text-left"
-          >
-            <span className="flex items-center gap-2 font-medium text-destructive">
-              <Trash2 className="h-4 w-4" />
-              Удаление аккаунта
-            </span>
-            <ChevronDown
-              className={`h-4 w-4 transition-transform ${expanded === "danger" ? "rotate-180" : ""}`}
-            />
-          </button>
-
-          {expanded === "danger" && (
-            <div className="rounded-lg border border-destructive/30 bg-card p-4 space-y-4">
-              <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-muted-foreground leading-relaxed">
-                Это необратимое действие. Будут удалены аккаунт, SMTP-настройки, история поисков и связанные данные.
-                Для операционных резервных копий и иных обязательных исключений ориентируйтесь на политику хранения данных и обращения в поддержку.
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="delete-confirm-email">Введите email аккаунта для подтверждения</Label>
-                <Input
-                  id="delete-confirm-email"
-                  value={deleteConfirmEmail}
-                  onChange={(e) => setDeleteConfirmEmail(e.target.value)}
-                  placeholder={meEmail || "email аккаунта"}
-                  autoComplete="email"
-                  disabled={deletingAccount}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="delete-password">Введите пароль аккаунта</Label>
-                <Input
-                  id="delete-password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="Пароль аккаунта"
-                  type="password"
-                  autoComplete="current-password"
-                  disabled={deletingAccount}
-                />
-              </div>
-
-              <div className="text-xs text-muted-foreground leading-relaxed">
-                Для соответствия 152-ФЗ пользователь может инициировать удаление аккаунта самостоятельно.
-                Если нужен отдельный запрос по данным без удаления аккаунта, используйте{" "}
-                <a href="mailto:support@smartoffer.pro" className="text-primary hover:underline">
-                  support@smartoffer.pro
-                </a>.
-              </div>
-
-              <Button
-                variant="destructive"
-                className="w-full"
-                onClick={handleDeleteAccount}
-                disabled={!canDeleteAccount || deletingAccount}
-              >
-                {deletingAccount ? "Удаляем аккаунт…" : "Удалить аккаунт"}
-              </Button>
-            </div>
-          )}
+            )}
           </div>
         </div>
 

@@ -5,21 +5,21 @@ import { SupplierTable } from '@/features/search/components/SupplierTable';
 import { Footer } from '@/features/search/components/Footer';
 import { HistoryModal } from "@/features/history/components/HistoryModal";
 import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
+import { BillingCounter } from '@/features/search/components/BillingCounter';
 import { Button } from '@/shared/ui/button';
 import { History } from 'lucide-react';
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
 import { searchSuppliers } from "@/api/search";
+import { fetchBillingMe, type BillingMe } from '@/api/billing';
 import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from "@/shared/utils/tenant";
 import { RadarLogo } from "@/shared/ui/RadarLogo";
 
-// NEW: auth
 import { AuthModal } from "@/features/auth/components/AuthModal";
 import { fetchMe, type UserMe } from "@/api/auth";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
-// NEW: mail
 import { sendRFQ } from "@/api/mail";
 
 function loadTemplate(): string {
@@ -42,56 +42,112 @@ export default function Index() {
   const [requestId, setRequestId] = useState<string>('');
   const [noSuppliersFound, setNoSuppliersFound] = useState(false);
 
-  // ВАЖНО: это настоящий job_id с бэка (число), нужен для /email/send и /history/{id}
   const [searchJobId, setSearchJobId] = useState<number | null>(null);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
   const { toast } = useToast();
   const { history, addRequest, updateRequest } = useRequestHistory();
 
-  // NEW: auth state
   const [authOpen, setAuthOpen] = useState(false);
   const [me, setMe] = useState<UserMe | null>(null);
 
-  // Filter history by current organization (scaffolding for multi-tenant)
+  const [billing, setBilling] = useState<BillingMe | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+
   const filteredHistory = useMemo(() => {
     return history.filter(
       (r) => !r.organization_id || r.organization_id === CURRENT_ORGANIZATION_ID
     );
   }, [history]);
 
-  // Auto-update email subject when equipment name changes
   useEffect(() => {
     if (equipmentName.trim()) {
       setEmailSubject(`Запрос КП — ${equipmentName}`);
     }
   }, [equipmentName]);
 
-  // Auto-fill template when rfqText is empty
   useEffect(() => {
     if (!rfqText.trim()) {
       setRfqText(loadTemplate());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rfqText]);
+
+  const refreshBilling = useCallback(async () => {
+    if (!getAuthToken()) {
+      setBilling(null);
+      setBillingLoading(false);
+      return;
+    }
+
+    try {
+      setBillingLoading(true);
+      const nextBilling = await fetchBillingMe();
+      setBilling(nextBilling);
+    } catch {
+      setBilling(null);
+    } finally {
+      setBillingLoading(false);
+    }
   }, []);
 
-  // NEW: fetch /auth/me if token exists
   useEffect(() => {
     const token = getAuthToken();
     if (!token) return;
 
-    fetchMe()
-      .then(setMe)
-      .catch(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setBillingLoading(true);
+        const user = await fetchMe();
+        if (cancelled) return;
+
+        setMe(user);
+
+        try {
+          const nextBilling = await fetchBillingMe();
+          if (!cancelled) {
+            setBilling(nextBilling);
+          }
+        } catch {
+          if (!cancelled) {
+            setBilling(null);
+          }
+        } finally {
+          if (!cancelled) {
+            setBillingLoading(false);
+          }
+        }
+      } catch {
         clearAuthToken();
-        setMe(null);
-      });
+        if (!cancelled) {
+          setMe(null);
+          setBilling(null);
+          setBillingLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const selectedCount = suppliers.filter((s) => s.selected).length;
 
   const handleSearch = useCallback(async () => {
+    if (!me) {
+      setAuthOpen(true);
+      toast({
+        title: 'Требуется вход',
+        description: 'Войдите или зарегистрируйтесь, чтобы выполнять поиск.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const newRequestId = `req-${Date.now()}`;
     setRequestId(newRequestId);
     setStatus('searching');
@@ -100,14 +156,17 @@ export default function Index() {
     setNoSuppliersFound(false);
 
     try {
-      const { jobId, suppliers: foundSuppliers, noSuppliersFound: noFoundFlag } = await searchSuppliers(equipmentName, newRequestId);
+      const {
+        jobId,
+        suppliers: foundSuppliers,
+        noSuppliersFound: noFoundFlag,
+      } = await searchSuppliers(equipmentName, newRequestId);
 
       setSuppliers(foundSuppliers);
       setSearchJobId(jobId);
       setStatus('search_completed');
       setNoSuppliersFound(!!noFoundFlag);
 
-      // Save request to history with tenant context
       addRequest({
         id: newRequestId,
         equipment_name: equipmentName,
@@ -120,16 +179,16 @@ export default function Index() {
       });
 
       if (noFoundFlag) {
-  toast({
-    title: 'Поставщики не найдены',
-    description: 'Возможно, ваше оборудование получится найти под другим именем.',
-  });
-} else {
-  toast({
-    title: 'Поставщики найдены',
-    description: `Найдено ${foundSuppliers.length} потенциальных поставщиков для "${equipmentName}"`,
-  });
-}
+        toast({
+          title: 'Поставщики не найдены',
+          description: 'Возможно, ваше оборудование получится найти под другим именем.',
+        });
+      } else {
+        toast({
+          title: 'Поставщики найдены',
+          description: `Найдено ${foundSuppliers.length} потенциальных поставщиков для "${equipmentName}"`,
+        });
+      }
     } catch (error) {
       setStatus('error');
       toast({
@@ -137,10 +196,22 @@ export default function Index() {
         description: error instanceof Error ? error.message : 'Произошла ошибка',
         variant: 'destructive',
       });
+    } finally {
+      void refreshBilling();
     }
-  }, [equipmentName, emailSubject, rfqText, toast, addRequest]);
+  }, [me, equipmentName, emailSubject, rfqText, toast, addRequest, refreshBilling]);
 
   const handleSend = useCallback(async () => {
+    if (!me) {
+      setAuthOpen(true);
+      toast({
+        title: 'Требуется вход',
+        description: 'Войдите или зарегистрируйтесь, чтобы отправлять запросы.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const selectedSuppliers = suppliers.filter((s) => s.selected && s.status === 'found');
 
     if (selectedSuppliers.length === 0) {
@@ -152,8 +223,6 @@ export default function Index() {
       return;
     }
 
-    // ВАЖНО: отправка по результатам поиска возможна только при наличии backend job_id
-    // Если выбраны только manual (у них backend_result_id нет) — job_id можно не требовать
     const hasNonManual = selectedSuppliers.some((s) => typeof s.backend_result_id === "number");
     if (hasNonManual && !searchJobId) {
       toast({
@@ -167,8 +236,6 @@ export default function Index() {
     setStatus('sending');
 
     try {
-      // ✅ ПРАВИЛЬНО:
-      // sendRFQ(search_job_id:number, subject:string, body:string, suppliers:Supplier[])
       const results = await sendRFQ(
         searchJobId ?? 0,
         emailSubject,
@@ -197,7 +264,6 @@ export default function Index() {
 
       setStatus('completed');
 
-      // Update request in history
       updateRequest(requestId, {
         status: 'completed',
         sent_at: new Date(),
@@ -218,7 +284,7 @@ export default function Index() {
         variant: 'destructive',
       });
     }
-  }, [suppliers, requestId, rfqText, emailSubject, toast, updateRequest, searchJobId]);
+  }, [me, suppliers, requestId, rfqText, emailSubject, toast, updateRequest, searchJobId]);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSuppliers((prev) =>
@@ -250,6 +316,13 @@ export default function Index() {
     }
   }, [requestId, status]);
 
+  const handleSettingsOpenChange = useCallback((next: boolean) => {
+    setSettingsOpen(next);
+    if (!next && getAuthToken()) {
+      void refreshBilling();
+    }
+  }, [refreshBilling]);
+
   const isProcessing = status === 'searching' || status === 'sending';
 
   const displayName = useMemo(() => {
@@ -262,98 +335,120 @@ export default function Index() {
     <div className="min-h-screen bg-background flex flex-col">
       <div className="flex-1 p-4 sm:p-6 lg:p-8">
         <div className="w-full max-w-[996px] mx-auto space-y-4">
-          {/* Header */}
-<div className="pt-8 pb-0">
-  <div className="flex flex-col lg:flex-row lg:items-start gap-6 lg:gap-10">
-    {/* Радар на desktop */}
-    <div className="hidden lg:block shrink-0">
-      <RadarLogo isActive={status === "searching"} size={220} />
-    </div>
+          <div className="pt-8 pb-0">
+            <div className="flex flex-col lg:flex-row lg:items-start gap-6 lg:gap-8">
+              <div className="hidden lg:block shrink-0">
+                <RadarLogo isActive={status === "searching"} size={220} />
+              </div>
 
-    {/* Контент шапки */}
-    <div className="flex-1">
-      <div className="mb-4">
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-primary tracking-tight leading-none">
-          Smartoffer.pro
-        </h1>
-      </div>
+              <div className="flex-1 lg:relative lg:pr-[170px]">
+                <div className="mb-3">
+                  <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold text-primary tracking-tight leading-none">
+                    Smartoffer.pro
+                  </h1>
+                </div>
 
-      <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-foreground leading-tight mb-4">
-        Автоматизация запроса
-        <br />
-        коммерческих предложений
-      </h2>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold text-foreground leading-tight mb-3">
+                  Автоматизация запроса
+                  <br />
+                  коммерческих предложений
+                </h2>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <p className="text-lg sm:text-xl text-muted-foreground">
-          Быстрый поиск поставщиков
-        </p>
+                <p className="text-lg sm:text-xl text-muted-foreground">
+                  Быстрый поиск поставщиков
+                </p>
 
-        <Button
-          variant="outline"
-          onClick={() => setHistoryOpen(true)}
-          className="shrink-0 self-start sm:self-auto"
-        >
-          <History className="w-4 h-4 mr-2" />
-          История
-        </Button>
-      </div>
+                <div className="mt-6 flex items-center justify-between gap-4 lg:hidden">
+                  <div className="shrink-0">
+                    <RadarLogo isActive={status === "searching"} size={200} />
+                  </div>
 
-      {/* Радар на mobile/tablet */}
-      <div className="flex justify-center lg:hidden mt-4">
-        <RadarLogo isActive={status === "searching"} size={150} />
-      </div>
-    </div>
-  </div>
-</div>
+                  <div className="flex flex-col items-end gap-3">
+                    <BillingCounter
+                      billing={billing}
+                      loading={billingLoading}
+                      isAuthenticated={!!me}
+                      onClick={() => setSettingsOpen(true)}
+                    />
 
-          {/* Authorization Block (REAL) */}
+                    <Button
+                      variant="outline"
+                      onClick={() => setHistoryOpen(true)}
+                      className="w-[132px] shrink-0 justify-center"
+                    >
+                      <History className="w-4 h-4 mr-2" />
+                      История
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-[38px] lg:flex-col lg:items-end lg:gap-3">
+                  <BillingCounter
+                    billing={billing}
+                    loading={billingLoading}
+                    isAuthenticated={!!me}
+                    onClick={() => setSettingsOpen(true)}
+                  />
+
+                  <Button
+                    variant="outline"
+                    onClick={() => setHistoryOpen(true)}
+                    className="w-[132px] shrink-0 justify-center"
+                  >
+                    <History className="w-4 h-4 mr-2" />
+                    История
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-card border border-border rounded-lg p-4">
-  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-    <div className="space-y-1">
-      <p className="text-sm font-medium text-foreground">{displayName}</p>
-      <p className="text-sm text-muted-foreground">
-        {me ? me.email : "Войдите или зарегистрируйтесь"}
-      </p>
-    </div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">{displayName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {me ? me.email : "Войдите или зарегистрируйтесь"}
+                </p>
+              </div>
 
-    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-      {!me ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full sm:w-auto"
-          onClick={() => setAuthOpen(true)}
-        >
-          Войти / Регистрация
-        </Button>
-      ) : (
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full sm:w-auto"
-          onClick={() => {
-            clearAuthToken();
-            setMe(null);
-          }}
-        >
-          Выйти
-        </Button>
-      )}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                {!me ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => setAuthOpen(true)}
+                  >
+                    Войти / Регистрация
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                      clearAuthToken();
+                      setMe(null);
+                      setBilling(null);
+                    }}
+                  >
+                    Выйти
+                  </Button>
+                )}
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full sm:w-auto"
-        onClick={() => setSettingsOpen(true)}
-      >
-        Настройки
-      </Button>
-    </div>
-  </div>
-</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => setSettingsOpen(true)}
+                >
+                  Настройки
+                </Button>
+              </div>
+            </div>
+          </div>
 
-          {/* Input Section */}
           <div className="bg-card border border-border rounded-lg p-6">
             <InputBlock
               equipmentName={equipmentName}
@@ -371,23 +466,22 @@ export default function Index() {
           </div>
 
           {status !== 'idle' && (
-  <div className="flex justify-start">
-    {noSuppliersFound ? (
-  <div className="border border-[#ffbf00] rounded-md px-4 py-3 text-sm leading-relaxed">
-    <p className="text-foreground font-medium">
-      По данному запросу поставщик в странах СНГ не найден.
-    </p>
-    <p className="text-yellow-300/80">
-      Попробуйте изменить наименование оборудования.
-    </p>
-  </div>
-) : (
-  <StatusBadge status={status} />
-)}
-  </div>
-)}
+            <div className="flex justify-start">
+              {noSuppliersFound ? (
+                <div className="border border-[#ffbf00] rounded-md px-4 py-3 text-sm leading-relaxed">
+                  <p className="text-foreground font-medium">
+                    По данному запросу поставщик в странах СНГ не найден.
+                  </p>
+                  <p className="text-yellow-300/80">
+                    Попробуйте изменить наименование оборудования.
+                  </p>
+                </div>
+              ) : (
+                <StatusBadge status={status} />
+              )}
+            </div>
+          )}
 
-          {/* Suppliers Section */}
           <div>
             <h2 className="text-lg font-semibold text-foreground mb-4">Найденные поставщики</h2>
             <SupplierTable
@@ -401,7 +495,7 @@ export default function Index() {
         </div>
       </div>
 
-      <Footer onOpenEmailVerification={() => setSettingsOpen(true)} />
+      <Footer />
 
       <HistoryModal
         open={historyOpen}
@@ -411,14 +505,16 @@ export default function Index() {
 
       <SettingsModal
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={handleSettingsOpenChange}
       />
 
-      {/* NEW: Auth modal */}
       <AuthModal
         open={authOpen}
         onOpenChange={setAuthOpen}
-        onAuthed={(u) => setMe(u)}
+        onAuthed={(u) => {
+          setMe(u);
+          void refreshBilling();
+        }}
       />
     </div>
   );
