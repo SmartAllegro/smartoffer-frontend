@@ -515,110 +515,114 @@ if (!offerAccepted) {
                 </div>
 
                 <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      id="smtp-personal-data-consent"
-                      checked={smtpConsentChecked}
-                      onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
-                      disabled={saving || smtpConsentLocked}
-                      className="mt-0.5"
-                    />
+  <div className="flex items-start gap-3">
+    <Checkbox
+      id="smtp-personal-data-consent"
+      checked={smtpConsentChecked}
+      onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
+      disabled={saving || smtpConsentLocked}
+      className="mt-0.5"
+    />
 
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="smtp-personal-data-consent"
-                        className="text-sm leading-5 cursor-pointer"
-                      >
-                        Я даю согласие на обработку персональных данных,
-                        необходимых для настройки SMTP и отправки писем через SmartOffer.
-                      </Label>
+    <div className="space-y-2">
+      <Label
+        htmlFor="smtp-personal-data-consent"
+        className="text-sm leading-5 cursor-pointer"
+      >
+        Я даю согласие на обработку персональных данных,
+        необходимых для настройки SMTP и отправки писем через SmartOffer.
+      </Label>
 
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {smtpConsentLocked
-                          ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-                          : "Без этой галочки сервис не сохранит SMTP-настройки."}
-                      </p>
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        {smtpConsentLocked
+          ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+          : "Без этой галочки сервис не сохранит SMTP-настройки."}
+      </p>
 
-                      <Link
-                        to="/personal-data-consent"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
-                      >
-                        Открыть текст согласия
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  </div>
+      <Link
+        to="/personal-data-consent"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+      >
+        Открыть текст согласия
+        <ExternalLink className="w-3.5 h-3.5" />
+      </Link>
+    </div>
+  </div>
 
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      id="smtp-terms-acceptance"
-                      checked={termsAccepted}
-                      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
-                      disabled={saving || termsAcceptedLocked}
-                      className="mt-0.5"
-                    />
+  <div className="h-px bg-border" />
 
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="smtp-terms-acceptance"
-                        className="text-sm leading-5 cursor-pointer"
-                      >
-                        Я принимаю пользовательское соглашение.
-                      </Label>
+  <div className="flex items-start gap-3">
+    <Checkbox
+      id="smtp-terms-acceptance"
+      checked={termsAccepted}
+      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+      disabled={saving || termsAcceptedLocked}
+      className="mt-0.5"
+    />
 
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {termsAcceptedLocked
-                          ? "Принятие пользовательского соглашения уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-                          : "Без этой галочки сервис не сохранит SMTP-настройки."}
-                      </p>
+    <div className="space-y-2">
+      <Label
+        htmlFor="smtp-terms-acceptance"
+        className="text-sm leading-5 cursor-pointer"
+      >
+        Я принимаю пользовательское соглашение.
+      </Label>
 
-                      <Link
-                        to="/terms"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
-                      >
-                        Открыть пользовательское соглашение
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  </div>
-                </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        {termsAcceptedLocked
+          ? "Принятие пользовательского соглашения уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+          : "Без этой галочки сервис не сохранит SMTP-настройки."}
+      </p>
 
-<div className="flex items-start gap-3">
-  <Checkbox
-    id="smtp-offer-acceptance"
-    checked={offerAccepted}
-    onCheckedChange={(checked) => setOfferAccepted(checked === true)}
-    disabled={saving || offerAcceptedLocked}
-    className="mt-0.5"
-  />
+      <Link
+        to="/terms"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+      >
+        Открыть пользовательское соглашение
+        <ExternalLink className="w-3.5 h-3.5" />
+      </Link>
+    </div>
+  </div>
 
-  <div className="space-y-2">
-    <Label
-      htmlFor="smtp-offer-acceptance"
-      className="text-sm leading-5 cursor-pointer"
-    >
-      Я принимаю публичную оферту.
-    </Label>
+  <div className="h-px bg-border" />
 
-    <p className="text-xs text-muted-foreground leading-relaxed">
-      {offerAcceptedLocked
-        ? "Принятие публичной оферты уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-        : "Без этой галочки сервис не сохранит SMTP-настройки."}
-    </p>
+  <div className="flex items-start gap-3">
+    <Checkbox
+      id="smtp-offer-acceptance"
+      checked={offerAccepted}
+      onCheckedChange={(checked) => setOfferAccepted(checked === true)}
+      disabled={saving || offerAcceptedLocked}
+      className="mt-0.5"
+    />
 
-    <Link
-      to="/offer"
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
-    >
-      Открыть публичную оферту
-      <ExternalLink className="w-3.5 h-3.5" />
-    </Link>
+    <div className="space-y-2">
+      <Label
+        htmlFor="smtp-offer-acceptance"
+        className="text-sm leading-5 cursor-pointer"
+      >
+        Я принимаю публичную оферту.
+      </Label>
+
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        {offerAcceptedLocked
+          ? "Принятие публичной оферты уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+          : "Без этой галочки сервис не сохранит SMTP-настройки."}
+      </p>
+
+      <Link
+        to="/offer"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+      >
+        Открыть публичную оферту
+        <ExternalLink className="w-3.5 h-3.5" />
+      </Link>
+    </div>
   </div>
 </div>
 
