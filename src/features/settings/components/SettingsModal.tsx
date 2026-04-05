@@ -97,6 +97,29 @@ function getBillingTone(status?: string, remaining?: number) {
   return "border-primary/20 bg-primary/5";
 }
 
+function getSmtpSuccessMessage(billing: BillingMe | null) {
+  if (!billing?.has_verified_email) {
+    return "SMTP настроен и подтверждён.";
+  }
+
+  if (billing.email_domain_type === "corporate") {
+    if (billing.current_plan_code === "free_50" || billing.free_already_granted) {
+      return "SMTP настроен и подтверждён. Подключена корпоративная почта. Тариф Free 50 активирован.";
+    }
+
+    return "SMTP настроен и подтверждён. Подключена корпоративная почта.";
+  }
+
+  if (billing.email_domain_type === "public") {
+    return (
+      "SMTP настроен и подтверждён. Подключена личная почта. "
+      + "Бесплатный тариф Free 50 для личной почты недоступен. Для поиска нужен платный тариф."
+    );
+  }
+
+  return "SMTP настроен и подтверждён.";
+}
+
 export function SettingsModal({
   open,
   onOpenChange,
@@ -155,22 +178,27 @@ export function SettingsModal({
   const requestsRemaining = Math.max(Number(billing?.requests_remaining ?? 0), 0);
   const requestsLimit = Math.max(Number(billing?.requests_limit ?? 0), 0);
 
-  const refreshBilling = React.useCallback(async () => {
-    try {
-      setLoadingBilling(true);
-      const [billingMe, plansRes] = await Promise.all([
-        fetchBillingMe(),
-        fetchBillingPlans(),
-      ]);
-      setBilling(billingMe);
-      setBillingPlans(Array.isArray(plansRes?.items) ? plansRes.items : []);
-    } catch {
-      setBilling(null);
-      setBillingPlans([]);
-    } finally {
-      setLoadingBilling(false);
-    }
-  }, []);
+  const refreshBilling = React.useCallback(async (): Promise<BillingMe | null> => {
+  try {
+    setLoadingBilling(true);
+
+    const [billingMe, plansRes] = await Promise.all([
+      fetchBillingMe(),
+      fetchBillingPlans(),
+    ]);
+
+    setBilling(billingMe);
+    setBillingPlans(Array.isArray(plansRes?.items) ? plansRes.items : []);
+
+    return billingMe;
+  } catch {
+    setBilling(null);
+    setBillingPlans([]);
+    return null;
+  } finally {
+    setLoadingBilling(false);
+  }
+}, []);
 
   React.useEffect(() => {
     if (!open) return;
@@ -340,17 +368,19 @@ if (!offerAccepted) {
       setOfferAccepted(true);
       setOfferAcceptedLocked(true);
 
+      const refreshedBilling = await refreshBilling();
+      const successMessage = getSmtpSuccessMessage(refreshedBilling);
+
       setSmtpStatus({
         state: "ok",
-        message: "SMTP настроен и подтверждён",
+        message: successMessage,
       });
 
-      await refreshBilling();
       setExpanded("billing");
 
       toast({
         title: "Почта настроена",
-        description: "Настройки SMTP и юридические подтверждения сохранены.",
+        description: successMessage,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Произошла ошибка";
@@ -678,12 +708,22 @@ if (!offerAccepted) {
                         </div>
                       </div>
 
-                      <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                        <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
                         {billing.has_verified_email ? (
-                          <>
-                            Подтвержденный email:{" "}
-                            <span className="text-foreground">{billing.verified_from_email}</span>
-                          </>
+                          billing.email_domain_type === "public" ? (
+                            <>
+                              Подтвержденный email:{" "}
+                              <span className="text-foreground">{billing.verified_from_email}</span>
+                              <br />
+                              Для личной почты SMTP уже сохранён, но Free 50 недоступен.
+                              Поиск будет доступен после подключения платного тарифа.
+                            </>
+                          ) : (
+                            <>
+                              Подтвержденный email:{" "}
+                              <span className="text-foreground">{billing.verified_from_email}</span>
+                            </>
+                          )
                         ) : (
                           "Чтобы получить Free 50, подключите и подтвердите корпоративную почту в блоке SMTP."
                         )}
