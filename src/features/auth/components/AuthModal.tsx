@@ -1,7 +1,11 @@
 ﻿import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
+import { Label } from "@/shared/ui/label";
+import { ExternalLink } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 import {
   fetchMe,
@@ -24,18 +28,18 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [loading, setLoading] = useState(false);
 
-  // login
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
-  // forgot
   const [forgotEmail, setForgotEmail] = useState("");
 
-  // register
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPassword, setRegPassword] = useState("");
+
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const canLogin = useMemo(
     () => loginEmail.trim().length > 0 && loginPassword.trim().length > 0,
@@ -49,9 +53,11 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
       firstName.trim().length > 0 &&
       lastName.trim().length > 0 &&
       regEmail.trim().length > 0 &&
-      regPassword.trim().length >= 8
+      regPassword.trim().length >= 8 &&
+      privacyAccepted &&
+      termsAccepted
     );
-  }, [firstName, lastName, regEmail, regPassword]);
+  }, [firstName, lastName, regEmail, regPassword, privacyAccepted, termsAccepted]);
 
   async function doFetchMeAndClose() {
     const me = await fetchMe();
@@ -114,14 +120,16 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
     setLoading(true);
     try {
       await registerUser({
-        first_name: firstName,
-        last_name: lastName,
-        email: regEmail,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        email: regEmail.trim(),
         password: regPassword,
+        privacy_accepted: privacyAccepted,
+        terms_accepted: termsAccepted,
       });
 
       const token = await loginUser({
-        email: regEmail,
+        email: regEmail.trim(),
         password: regPassword,
       });
       setAuthToken(token.access_token);
@@ -145,11 +153,13 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
       onOpenChange={(next) => {
         if (!next) {
           setMode("login");
+          setPrivacyAccepted(false);
+          setTermsAccepted(false);
         }
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {mode === "forgot" ? "Восстановление доступа" : "Аккаунт Smartoffer"}
@@ -253,12 +263,14 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
                 autoComplete="family-name"
               />
             </div>
+
             <Input
               placeholder="Email"
               value={regEmail}
               onChange={(e) => setRegEmail(e.target.value)}
               autoComplete="email"
             />
+
             <Input
               placeholder="Пароль (минимум 8 символов)"
               type="password"
@@ -266,6 +278,83 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
               onChange={(e) => setRegPassword(e.target.value)}
               autoComplete="new-password"
             />
+
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
+              <div className="flex items-start gap-3">
+  <Checkbox
+    id="register-privacy-acceptance"
+    checked={privacyAccepted}
+    onCheckedChange={(checked) => setPrivacyAccepted(checked === true)}
+    disabled={loading}
+    className="mt-0.5"
+  />
+
+  <div className="space-y-2">
+    <Label
+      htmlFor="register-privacy-acceptance"
+      className="text-sm leading-5 cursor-pointer"
+    >
+      Я ознакомлен(а) с Политикой конфиденциальности и Политикой хранения данных
+      SmartOffer и соглашаюсь с обработкой персональных данных в рамках регистрации
+      и использования сервиса.
+    </Label>
+
+    <div className="flex flex-wrap gap-3">
+      <Link
+        to="/privacy"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+      >
+        Политика конфиденциальности
+        <ExternalLink className="w-3.5 h-3.5" />
+      </Link>
+
+      <Link
+        to="/data-retention"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+      >
+        Политика хранения данных
+        <ExternalLink className="w-3.5 h-3.5" />
+      </Link>
+    </div>
+  </div>
+</div>
+
+              <div className="h-px bg-border" />
+
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="register-terms-acceptance"
+                  checked={termsAccepted}
+                  onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+                  disabled={loading}
+                  className="mt-0.5"
+                />
+
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="register-terms-acceptance"
+                    className="text-sm leading-5 cursor-pointer"
+                  >
+                    Я принимаю Пользовательское соглашение.
+                  </Label>
+
+                  <Link
+                    to="/terms"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+                  >
+                    Открыть Пользовательское соглашение
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+
             <Button className="w-full" disabled={!canRegister || loading} onClick={handleRegister}>
               Создать аккаунт
             </Button>

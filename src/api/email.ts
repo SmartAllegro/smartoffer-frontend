@@ -81,7 +81,6 @@ export type EmailSettingsIn = {
   from_email?: string | null;
 
   personal_data_consent_accepted: boolean;
-  terms_accepted: boolean;
   offer_accepted: boolean;
 };
 
@@ -100,11 +99,7 @@ export type EmailSettingsOut = {
   personal_data_consent_accepted: boolean;
   personal_data_consent_accepted_at?: string | null;
 
-  terms_accepted: boolean;
-  terms_accepted_at?: string | null;
-
   offer_accepted: boolean;
-  
   offer_accepted_at?: string | null;
 };
 

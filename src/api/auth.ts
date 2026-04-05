@@ -29,6 +29,8 @@ export async function registerUser(payload: {
   last_name: string;
   email: string;
   password: string;
+  privacy_accepted: boolean;
+  terms_accepted: boolean;
 }): Promise<UserMe> {
   return apiFetch<UserMe>("/auth/register", {
     method: "POST",

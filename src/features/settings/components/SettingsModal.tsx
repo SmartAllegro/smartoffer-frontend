@@ -119,10 +119,8 @@ export function SettingsModal({
   const [appPassword, setAppPassword] = React.useState<string>("");
 
   const [smtpConsentChecked, setSmtpConsentChecked] = React.useState(false);
-  const [termsAccepted, setTermsAccepted] = React.useState(false);
 
   const [smtpConsentLocked, setSmtpConsentLocked] = React.useState(false);
-  const [termsAcceptedLocked, setTermsAcceptedLocked] = React.useState(false);
   const [offerAccepted, setOfferAccepted] = React.useState(false);
   const [offerAcceptedLocked, setOfferAcceptedLocked] = React.useState(false);
 
@@ -183,9 +181,7 @@ export function SettingsModal({
     setDeletePassword("");
 
     setSmtpConsentChecked(false);
-    setTermsAccepted(false);
     setSmtpConsentLocked(false);
-    setTermsAcceptedLocked(false);
     setOfferAccepted(false);
     setOfferAcceptedLocked(false);
     setSmtpStatus({ state: "idle" });
@@ -217,15 +213,12 @@ export function SettingsModal({
         }
 
         const personalAccepted = Boolean(s.personal_data_consent_accepted);
-        const termsAcceptedServer = Boolean(s.terms_accepted);
         const offerAcceptedServer = Boolean(s.offer_accepted);
 
         setSmtpConsentChecked(personalAccepted);
-        setTermsAccepted(termsAcceptedServer);
         setOfferAccepted(offerAcceptedServer);
 
         setSmtpConsentLocked(personalAccepted);
-        setTermsAcceptedLocked(termsAcceptedServer);
         setOfferAcceptedLocked(offerAcceptedServer);
       })
       .catch(() => {
@@ -265,20 +258,6 @@ export function SettingsModal({
       return;
     }
 
-    if (!termsAccepted) {
-      setExpanded("auth");
-      setSmtpStatus({
-        state: "error",
-        message:
-          "Для сохранения SMTP-настроек необходимо принять пользовательское соглашение.",
-      });
-      toast({
-        title: "Примите пользовательское соглашение",
-        description: "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
-        variant: "destructive",
-      });
-      return;
-    }
 
 if (!offerAccepted) {
   setExpanded("auth");
@@ -353,14 +332,11 @@ if (!offerAccepted) {
         smtp_password: appPassword.trim(),
         from_email: meEmail,
         personal_data_consent_accepted: smtpConsentChecked,
-        terms_accepted: termsAccepted,
         offer_accepted: offerAccepted,
       } as any);
 
       setSmtpConsentChecked(true);
-      setTermsAccepted(true);
       setSmtpConsentLocked(true);
-      setTermsAcceptedLocked(true);
       setOfferAccepted(true);
       setOfferAcceptedLocked(true);
 
@@ -516,77 +492,62 @@ if (!offerAccepted) {
 
                 <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
   <div className="flex items-start gap-3">
-    <Checkbox
-      id="smtp-personal-data-consent"
-      checked={smtpConsentChecked}
-      onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
-      disabled={saving || smtpConsentLocked}
-      className="mt-0.5"
-    />
+  <Checkbox
+    id="smtp-personal-data-consent"
+    checked={smtpConsentChecked}
+    onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
+    disabled={saving || smtpConsentLocked}
+    className="mt-0.5"
+  />
 
-    <div className="space-y-2">
-      <Label
-        htmlFor="smtp-personal-data-consent"
-        className="text-sm leading-5 cursor-pointer"
-      >
-        Я даю согласие на обработку персональных данных,
-        необходимых для настройки SMTP и отправки писем через SmartOffer.
-      </Label>
+  <div className="space-y-2">
+    <Label
+      htmlFor="smtp-personal-data-consent"
+      className="text-sm leading-5 cursor-pointer"
+    >
+      Я даю согласие на обработку персональных данных для настройки SMTP
+      и отправки писем через SmartOffer.
+    </Label>
 
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        {smtpConsentLocked
-          ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-          : "Без этой галочки сервис не сохранит SMTP-настройки."}
-      </p>
+    <p className="text-xs text-muted-foreground leading-relaxed">
+      {smtpConsentLocked
+        ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+        : "Без этой галочки сервис не сохранит SMTP-настройки."}
+    </p>
 
+    <div className="flex flex-wrap gap-3">
       <Link
         to="/personal-data-consent"
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
-        Открыть текст согласия
+        Согласие на обработку ПДн
         <ExternalLink className="w-3.5 h-3.5" />
       </Link>
-    </div>
-  </div>
-
-  <div className="h-px bg-border" />
-
-  <div className="flex items-start gap-3">
-    <Checkbox
-      id="smtp-terms-acceptance"
-      checked={termsAccepted}
-      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
-      disabled={saving || termsAcceptedLocked}
-      className="mt-0.5"
-    />
-
-    <div className="space-y-2">
-      <Label
-        htmlFor="smtp-terms-acceptance"
-        className="text-sm leading-5 cursor-pointer"
-      >
-        Я принимаю пользовательское соглашение.
-      </Label>
-
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        {termsAcceptedLocked
-          ? "Принятие пользовательского соглашения уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-          : "Без этой галочки сервис не сохранит SMTP-настройки."}
-      </p>
 
       <Link
-        to="/terms"
+        to="/privacy"
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
-        Открыть пользовательское соглашение
+        Политика конфиденциальности
+        <ExternalLink className="w-3.5 h-3.5" />
+      </Link>
+
+      <Link
+        to="/data-retention"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+      >
+        Политика хранения данных
         <ExternalLink className="w-3.5 h-3.5" />
       </Link>
     </div>
   </div>
+</div>
 
   <div className="h-px bg-border" />
 
