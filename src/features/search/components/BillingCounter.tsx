@@ -1,4 +1,4 @@
-﻿import type { BillingMe } from "@/api/billing";
+﻿﻿import type { BillingMe } from "@/api/billing";
 import { cn } from "@/shared/utils/utils";
 
 type Props = {
@@ -18,7 +18,7 @@ export function BillingCounter({
   const limit = Math.max(Number(billing?.requests_limit ?? 0), 0);
 
   const title = !isAuthenticated
-    ? "Запросы"
+    ? "Тариф"
     : billing?.current_plan_name || "Тариф";
 
   const value = !isAuthenticated
@@ -30,28 +30,28 @@ export function BillingCounter({
   const hint = !isAuthenticated
     ? "Настройте почту"
     : billing?.email_domain_type === "corporate"
-      ? "Corporate"
+      ? "Запросов"
       : billing?.email_domain_type === "public"
-        ? "Personal"
-        : "No SMTP";
+        ? "Запросов"
+        : "Настройте почту";
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "w-[132px] min-h-[92px] rounded-xl border px-4 py-3 text-left transition-colors",
+        "w-[132px] min-h-[92px] rounded-xl border px-4 py-4 text-left transition-colors",
         "border-[#c89b16] bg-[#ffbf00] hover:bg-[#f0b400]",
         "shadow-[0_10px_24px_rgba(255,191,0,0.12)]"
       )}
       title="Открыть настройки"
     >
       <div className="flex h-full flex-col justify-between gap-2">
-        <div className="text-[11px] uppercase tracking-[0.12em] text-[#5b4200]/80">
+        <div className="text-[12px] uppercase tracking-[0.12em] text-[#5b4200]/80">
           {title}
         </div>
 
-        <div className="text-[28px] font-semibold leading-none text-[#2b2100]">
+        <div className="text-[22px] font-semibold leading-none text-[#2b2100]">
           {value}
         </div>
 
