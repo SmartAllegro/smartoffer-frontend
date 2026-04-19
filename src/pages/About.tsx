@@ -22,9 +22,12 @@ import {
 } from "@/shared/ui/dialog";
 import { fetchMe, type UserMe } from "@/api/auth";
 import { sendSupportRequest } from "@/api/support";
+import { initTbankPayment } from "@/api/payments";
+import { useToast } from "@/shared/hooks/use-toast";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
 type PricingStep = "plans" | "payment";
+type PaymentMethod = "card" | "sbp";
 
 const scrollToPricing = () => {
   document.getElementById("pricing")?.scrollIntoView({
@@ -61,6 +64,14 @@ const PRICING = [
 ] as const;
 
 type PricingPlan = (typeof PRICING)[number];
+
+function planToCode(plan: PricingPlan | null): string | null {
+  if (!plan) return null;
+  if (plan.name === "200") return "start_200";
+  if (plan.name === "500") return "pro_500";
+  if (plan.name === "1000") return "max_1000";
+  return null;
+}
 
 function InvoiceRequestModal({
   open,
@@ -338,13 +349,52 @@ function PlanPaymentModal({
   selectedPlan: PricingPlan | null;
   onRequestInvoice: (plan: PricingPlan | null) => void;
 }) {
+  const { toast } = useToast();
   const [paymentNotice, setPaymentNotice] = useState("");
+  const [payingMethod, setPayingMethod] = useState<PaymentMethod | null>(null);
 
   useEffect(() => {
     if (!open) {
       setPaymentNotice("");
+      setPayingMethod(null);
     }
   }, [open]);
+
+  async function handleHostedPayment(method: PaymentMethod) {
+    if (!selectedPlan) return;
+
+    const planCode = planToCode(selectedPlan);
+    if (!planCode) {
+      setPaymentNotice(
+        "Для тарифа Free оплата не требуется. Этот тариф подключается отдельно по правилам сервиса."
+      );
+      return;
+    }
+
+    try {
+      setPaymentNotice("");
+      setPayingMethod(method);
+
+      const result = await initTbankPayment({
+        plan_code: planCode,
+        preferred_method: method,
+      });
+
+      window.location.href = result.payment_url;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось создать платёж";
+
+      setPaymentNotice(message);
+      toast({
+        title: "Ошибка оплаты",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setPayingMethod(null);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -398,14 +448,12 @@ function PlanPaymentModal({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button
                   type="button"
-                  onClick={() =>
-                    setPaymentNotice(
-                      "Оплата по карте будет подключена следующим этапом."
-                    )
-                  }
+                  onClick={() => void handleHostedPayment("card")}
+                  disabled={payingMethod !== null}
                   className="
                     rounded-xl border border-white/10 bg-white/5
                     px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                    disabled:opacity-60 disabled:cursor-not-allowed
                   "
                 >
                   <div className="text-base font-semibold text-white">
@@ -418,14 +466,12 @@ function PlanPaymentModal({
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setPaymentNotice(
-                      "Оплата через СБП будет подключена следующим этапом."
-                    )
-                  }
+                  onClick={() => void handleHostedPayment("sbp")}
+                  disabled={payingMethod !== null}
                   className="
                     rounded-xl border border-white/10 bg-white/5
                     px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                    disabled:opacity-60 disabled:cursor-not-allowed
                   "
                 >
                   <div className="text-base font-semibold text-white">СБП</div>
@@ -468,9 +514,7 @@ function PlanPaymentModal({
               ) : null}
 
               <div className="mt-5 text-sm text-white/55">
-                Сейчас в интерфейсе подготовлен сценарий выбора тарифа и способа
-                оплаты. Интеграция онлайн-оплаты картой и через СБП подключается
-                следующим этапом.
+                После выбора способа оплаты откроется защищённая платёжная форма банка.
               </div>
             </div>
           </div>
@@ -546,7 +590,7 @@ export default function About() {
                   Запросить счет
                 </Button>
                 <Button variant="outline" onClick={scrollToPricing}>
-                Посмотреть тарифы
+                  Посмотреть тарифы
                 </Button>
               </div>
 

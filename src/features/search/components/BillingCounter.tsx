@@ -51,7 +51,7 @@ export function BillingCounter({
           {title}
         </div>
 
-        <div className="text-[22px] font-semibold leading-none text-[#2b2100]">
+        <div className="text-[18px] font-semibold leading-none text-[#2b2100]">
           {value}
         </div>
 
