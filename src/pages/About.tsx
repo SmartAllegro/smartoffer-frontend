@@ -22,11 +22,16 @@ import {
 } from "@/shared/ui/dialog";
 import { fetchMe, type UserMe } from "@/api/auth";
 import { sendSupportRequest } from "@/api/support";
-import { initTbankPayment, fetchMyPayment } from "@/api/payments";
+import {
+  initTbankPayment,
+  fetchMyPayment,
+  fetchSbpBanks,
+  fetchSbpDeeplink,
+  type SbpBankItem,
+} from "@/api/payments";
 import { useToast } from "@/shared/hooks/use-toast";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
-type PricingStep = "plans" | "payment";
 type PaymentMethod = "card" | "sbp";
 
 const scrollToPricing = () => {
@@ -70,6 +75,13 @@ function planToCode(plan: PricingPlan | null): string | null {
   if (plan.name === "200") return "start_200";
   if (plan.name === "500") return "pro_500";
   if (plan.name === "1000") return "max_1000";
+  return null;
+}
+
+function detectMobileOs(): "ios" | "android" | null {
+  const ua = navigator.userAgent.toLowerCase();
+  if (/iphone|ipad|ipod/.test(ua)) return "ios";
+  if (/android/.test(ua)) return "android";
   return null;
 }
 
@@ -141,6 +153,112 @@ function SbpQrDialog({
   );
 }
 
+function SbpBanksDialog({
+  open,
+  onOpenChange,
+  banks,
+  loading,
+  onSelectBank,
+}: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  banks: SbpBankItem[];
+  loading: boolean;
+  onSelectBank: (bank: SbpBankItem) => Promise<void> | void;
+}) {
+  const [submittingBankId, setSubmittingBankId] = useState<string | null>(null);
+
+  async function handleClick(bank: SbpBankItem) {
+    try {
+      setSubmittingBankId(bank.bank_id);
+      await onSelectBank(bank);
+    } finally {
+      setSubmittingBankId(null);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="
+          max-w-[420px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-6 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Выберите банк
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="mt-4 text-sm text-white/65">
+            На телефоне оплата по СБП откроется через приложение выбранного банка.
+          </div>
+
+          <div className="mt-5 space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+            {loading ? (
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-white/70">
+                Загружаем список банков...
+              </div>
+            ) : banks.length === 0 ? (
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-sm text-white/70">
+                Список банков пока не получен.
+              </div>
+            ) : (
+              banks.map((bank) => (
+                <button
+                  key={bank.bank_id}
+                  type="button"
+                  onClick={() => void handleClick(bank)}
+                  disabled={submittingBankId !== null}
+                  className="
+                    w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left
+                    transition hover:bg-white/10 disabled:opacity-60 disabled:cursor-not-allowed
+                  "
+                >
+                  <div className="font-medium text-white">
+                    {submittingBankId === bank.bank_id ? "Открываем..." : bank.name}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="mt-5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="w-full border-white/15 text-white hover:bg-white/10"
+            >
+              Закрыть
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const INVOICE_REQUISITES_TEMPLATE = `ООО / ИП
+ИНН
+КПП
+ОГРН / ОГРНИП
+Юридический адрес
+Почта для документов
+Банк
+р/с
+к/с
+БИК`;
+
 function InvoiceRequestModal({
   open,
   onOpenChange,
@@ -154,7 +272,7 @@ function InvoiceRequestModal({
   const [meLoading, setMeLoading] = useState(false);
 
   const [subject, setSubject] = useState("");
-  const [requisites, setRequisites] = useState("");
+  const [requisites, setRequisites] = useState(INVOICE_REQUISITES_TEMPLATE);
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [successText, setSuccessText] = useState("");
@@ -211,7 +329,7 @@ function InvoiceRequestModal({
 
   function resetState() {
     setSubject("");
-    setRequisites("");
+    setRequisites(INVOICE_REQUISITES_TEMPLATE);
     setComment("");
     setLoading(false);
     setSuccessText("");
@@ -332,18 +450,6 @@ function InvoiceRequestModal({
                 <Textarea
                   value={requisites}
                   onChange={(e) => setRequisites(e.target.value)}
-                  placeholder={`Укажите реквизиты компании:
-ООО / ИП
-ИНН
-КПП
-ОГРН / ОГРНИП
-Юридический адрес
-Почта для документов
-Телефон
-Банк
-р/с
-к/с
-БИК`}
                   className="min-h-[190px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
                 />
               </div>
@@ -426,15 +532,26 @@ function PlanPaymentModal({
   const [sbpOrderId, setSbpOrderId] = useState<number | null>(null);
   const [sbpStatusText, setSbpStatusText] = useState("");
 
+  const [sbpBanksOpen, setSbpBanksOpen] = useState(false);
+  const [sbpBanks, setSbpBanks] = useState<SbpBankItem[]>([]);
+  const [sbpBanksLoading, setSbpBanksLoading] = useState(false);
+
   useEffect(() => {
     if (!open) {
       setPaymentNotice("");
       setPayingMethod(null);
+      setSbpOpen(false);
+      setSbpQrSvg("");
+      setSbpOrderId(null);
+      setSbpStatusText("");
+      setSbpBanksOpen(false);
+      setSbpBanks([]);
+      setSbpBanksLoading(false);
     }
   }, [open]);
 
   useEffect(() => {
-    if (!sbpOpen || !sbpOrderId) return;
+    if (!sbpOrderId || (!sbpOpen && !sbpBanksOpen)) return;
 
     let cancelled = false;
     let timer: number | null = null;
@@ -448,6 +565,7 @@ function PlanPaymentModal({
           setSbpStatusText("Оплата подтверждена. Тариф активирован.");
           timer = window.setTimeout(() => {
             setSbpOpen(false);
+            setSbpBanksOpen(false);
             window.location.reload();
           }, 1200);
           return;
@@ -470,13 +588,13 @@ function PlanPaymentModal({
       }
     }
 
-    poll();
+    void poll();
 
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [sbpOpen, sbpOrderId]);
+  }, [sbpOrderId, sbpOpen, sbpBanksOpen]);
 
   async function handleHostedPayment(method: PaymentMethod) {
     if (!selectedPlan) return;
@@ -503,12 +621,32 @@ function PlanPaymentModal({
         return;
       }
 
-      if (result.mode === "sbp_qr" && result.sbp_qr_svg && result.order_id) {
-        setSbpQrSvg(result.sbp_qr_svg);
+      if (result.mode === "sbp_qr" && result.order_id) {
         setSbpOrderId(result.order_id);
-        setSbpStatusText("Ожидаем оплату по СБП...");
-        setSbpOpen(true);
-        return;
+
+        const mobileOs = detectMobileOs();
+        if (mobileOs) {
+          setSbpBanksLoading(true);
+          try {
+            const banks = await fetchSbpBanks({
+              payment_order_id: result.order_id,
+              os: mobileOs,
+            });
+            setSbpBanks(banks.items || []);
+            setSbpStatusText("Выберите банк для оплаты.");
+            setSbpBanksOpen(true);
+            return;
+          } finally {
+            setSbpBanksLoading(false);
+          }
+        }
+
+        if (result.sbp_qr_svg) {
+          setSbpQrSvg(result.sbp_qr_svg);
+          setSbpStatusText("Ожидаем оплату по СБП...");
+          setSbpOpen(true);
+          return;
+        }
       }
 
       throw new Error("Банк не вернул данные для оплаты");
@@ -525,6 +663,17 @@ function PlanPaymentModal({
     } finally {
       setPayingMethod(null);
     }
+  }
+
+  async function handleSelectBank(bank: SbpBankItem) {
+    if (!sbpOrderId) return;
+
+    const res = await fetchSbpDeeplink({
+      payment_order_id: sbpOrderId,
+      bank_id: bank.bank_id,
+    });
+
+    window.location.href = res.deeplink;
   }
 
   return (
@@ -607,10 +756,10 @@ function PlanPaymentModal({
                     "
                   >
                     <div className="text-base font-semibold text-white">
-                      {payingMethod === "sbp" ? "Загрузка QR..." : "СБП"}
+                      {payingMethod === "sbp" ? "Подготовка..." : "СБП"}
                     </div>
                     <div className="mt-2 text-sm text-white/65">
-                      Оплата по QR-коду через приложение банка.
+                      На компьютере — QR-код, на телефоне — переход в банковское приложение.
                     </div>
                   </button>
 
@@ -662,6 +811,14 @@ function PlanPaymentModal({
         qrSvg={sbpQrSvg}
         statusText={sbpStatusText}
       />
+
+      <SbpBanksDialog
+        open={sbpBanksOpen}
+        onOpenChange={setSbpBanksOpen}
+        banks={sbpBanks}
+        loading={sbpBanksLoading}
+        onSelectBank={handleSelectBank}
+      />
     </>
   );
 }
@@ -703,7 +860,6 @@ export default function About() {
             </Button>
           </div>
 
-          {/* HERO */}
           <section className="border border-border rounded-2xl bg-card p-7">
             <div className="flex flex-col gap-5">
               <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
@@ -743,7 +899,6 @@ export default function About() {
             </div>
           </section>
 
-          {/* TRUST / VALUE */}
           <section className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="border border-border rounded-2xl bg-card p-6 flex flex-col">
               <div>
@@ -869,7 +1024,6 @@ export default function About() {
             </div>
           </section>
 
-          {/* HOW IT WORKS */}
           <section className="mt-10">
             <h2 className="text-xl font-semibold text-foreground mb-4">
               Как работает SmartOffer
@@ -912,7 +1066,6 @@ export default function About() {
             </div>
           </section>
 
-          {/* PRICING */}
           <section id="pricing" className="mt-12 scroll-mt-24">
             <div className="mb-4">
               <h2 className="text-xl font-semibold text-foreground">Тарифы и лимиты</h2>
@@ -954,7 +1107,6 @@ export default function About() {
             </div>
           </section>
 
-          {/* FAQ */}
           <section className="mt-12">
             <h2 className="text-xl font-semibold text-foreground mb-4">FAQ</h2>
 
@@ -983,7 +1135,6 @@ export default function About() {
             </div>
           </section>
 
-          {/* CTA */}
           <section className="mt-12 border border-border rounded-2xl bg-card p-7">
             <h2 className="text-xl font-semibold text-foreground">
               Хотите ускорить запросы КП в вашей компании?
