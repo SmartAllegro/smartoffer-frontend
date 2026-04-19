@@ -39,6 +39,20 @@ export type PaymentOrderItemOut = {
   updated_at: string;
 };
 
+export type SbpBankItem = {
+  bank_id: string;
+  bank_name: string;
+  logo_url?: string | null;
+};
+
+export type SbpBanksOut = {
+  items: SbpBankItem[];
+};
+
+export type SbpDeeplinkOut = {
+  deeplink: string;
+};
+
 export async function initTbankPayment(
   payload: TBankInitPaymentIn
 ): Promise<TBankInitPaymentOut> {
@@ -51,5 +65,25 @@ export async function initTbankPayment(
 export async function fetchMyPayment(orderId: number): Promise<PaymentOrderItemOut> {
   return apiFetch<PaymentOrderItemOut>(`/payments/${orderId}`, {
     method: "GET",
+  });
+}
+
+export async function fetchSbpBanks(payload: {
+  payment_order_id: number;
+  os: "ios" | "android";
+}): Promise<SbpBanksOut> {
+  return apiFetch<SbpBanksOut>("/payments/tbank/sbp/banks", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export async function fetchSbpDeeplink(payload: {
+  payment_order_id: number;
+  bank_id: string;
+}): Promise<SbpDeeplinkOut> {
+  return apiFetch<SbpDeeplinkOut>("/payments/tbank/sbp/deeplink", {
+    method: "POST",
+    json: payload,
   });
 }
