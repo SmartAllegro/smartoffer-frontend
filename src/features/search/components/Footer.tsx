@@ -20,7 +20,7 @@ import {
 } from "@/shared/ui/dialog";
 import { fetchMe, type UserMe } from "@/api/auth";
 import { sendSupportRequest } from "@/api/support";
-import { initTbankPayment } from "@/api/payments";
+import { initTbankPayment, fetchMyPayment } from "@/api/payments";
 import { useToast } from "@/shared/hooks/use-toast";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
@@ -29,7 +29,7 @@ type PricingStep = "plans" | "payment";
 
 const TELEGRAM_URL =
   import.meta.env.VITE_SUPPORT_TELEGRAM_URL ||
-  "https://t.me/smartoffer_support?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%20%D0%BC%D0%B5%D0%BD%D1%8F%20%D0%B2%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BF%D0%BE%20SmartOffer.";
+  "https://t.me/smartoffer_support?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%20%D0%BC%D0%B5%D0%BD%D1%8F%20%D0%B2%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BF%D0%BE%20SmartOffer.";
 
 const PRICING = [
   {
@@ -95,6 +95,74 @@ function TelegramIcon({ className = "h-8 w-8" }: { className?: string }) {
         </linearGradient>
       </defs>
     </svg>
+  );
+}
+
+function SbpQrDialog({
+  open,
+  onOpenChange,
+  qrSvg,
+  statusText,
+}: {
+  open: boolean;
+  onOpenChange: (value: boolean) => void;
+  qrSvg: string;
+  statusText: string;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="
+          max-w-[420px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-6 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Оплата по СБП
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="mt-4 text-sm text-white/65">
+            Отсканируйте QR-код в приложении банка.
+          </div>
+
+          <div className="mt-5 rounded-xl border border-white/10 bg-white p-4 flex items-center justify-center">
+            {qrSvg ? (
+              <div
+                className="w-[260px] h-[260px] flex items-center justify-center"
+                dangerouslySetInnerHTML={{ __html: qrSvg }}
+              />
+            ) : (
+              <div className="text-sm text-black/60">QR-код не получен</div>
+            )}
+          </div>
+
+          <div className="mt-4 text-sm text-white/65">
+            {statusText || "Ожидаем оплату..."}
+          </div>
+
+          <div className="mt-5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="w-full border-white/15 text-white hover:bg-white/10"
+            >
+              Закрыть
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -383,6 +451,11 @@ function PricingModal({
   const [paymentNotice, setPaymentNotice] = useState("");
   const [payingMethod, setPayingMethod] = useState<"card" | "sbp" | null>(null);
 
+  const [sbpOpen, setSbpOpen] = useState(false);
+  const [sbpQrSvg, setSbpQrSvg] = useState("");
+  const [sbpOrderId, setSbpOrderId] = useState<number | null>(null);
+  const [sbpStatusText, setSbpStatusText] = useState("");
+
   function resetState() {
     setStep("plans");
     setSelectedPlan(null);
@@ -405,6 +478,51 @@ function PricingModal({
     setStep("payment");
   }
 
+  useEffect(() => {
+    if (!sbpOpen || !sbpOrderId) return;
+
+    let cancelled = false;
+    let timer: number | null = null;
+
+    async function poll() {
+      try {
+        const payment = await fetchMyPayment(sbpOrderId);
+        if (cancelled) return;
+
+        if (payment.status === "confirmed") {
+          setSbpStatusText("Оплата подтверждена. Тариф активирован.");
+          timer = window.setTimeout(() => {
+            setSbpOpen(false);
+            window.location.reload();
+          }, 1200);
+          return;
+        }
+
+        if (payment.status === "failed" || payment.status === "canceled") {
+          setSbpStatusText("Оплата не завершена.");
+          return;
+        }
+
+        setSbpStatusText("Ожидаем оплату по СБП...");
+      } catch {
+        if (!cancelled) {
+          setSbpStatusText("Проверяем статус оплаты...");
+        }
+      }
+
+      if (!cancelled) {
+        timer = window.setTimeout(poll, 3000);
+      }
+    }
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [sbpOpen, sbpOrderId]);
+
   async function handleHostedPayment(method: "card" | "sbp") {
     if (!selectedPlan) return;
 
@@ -425,7 +543,20 @@ function PricingModal({
         preferred_method: method,
       });
 
-      window.location.href = result.payment_url;
+      if (result.mode === "redirect" && result.payment_url) {
+        window.location.href = result.payment_url;
+        return;
+      }
+
+      if (result.mode === "sbp_qr" && result.sbp_qr_svg && result.order_id) {
+        setSbpQrSvg(result.sbp_qr_svg);
+        setSbpOrderId(result.order_id);
+        setSbpStatusText("Ожидаем оплату по СБП...");
+        setSbpOpen(true);
+        return;
+      }
+
+      throw new Error("Банк не вернул данные для оплаты");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Не удалось создать платёж";
@@ -442,195 +573,204 @@ function PricingModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={closeModal}>
-      <DialogContent
-        className="
-          w-[calc(100vw-16px)]
-          sm:w-full
-          max-w-[760px]
-          max-h-[90vh]
-          overflow-hidden
-          rounded-xl
-          border border-white/10
-          bg-card
-          p-0
-          text-white
-          shadow-2xl
-          [&_[data-radix-dialog-close]]:text-white/60
-          [&_[data-radix-dialog-close]]:hover:text-white
-        "
-      >
-        <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
-          <DialogHeader className="space-y-0 text-left">
-            <DialogTitle className="text-[22px] font-semibold text-white">
-              Цены
-            </DialogTitle>
-          </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={closeModal}>
+        <DialogContent
+          className="
+            w-[calc(100vw-16px)]
+            sm:w-full
+            max-w-[760px]
+            max-h-[90vh]
+            overflow-hidden
+            rounded-xl
+            border border-white/10
+            bg-card
+            p-0
+            text-white
+            shadow-2xl
+            [&_[data-radix-dialog-close]]:text-white/60
+            [&_[data-radix-dialog-close]]:hover:text-white
+          "
+        >
+          <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
+            <DialogHeader className="space-y-0 text-left">
+              <DialogTitle className="text-[22px] font-semibold text-white">
+                Цены
+              </DialogTitle>
+            </DialogHeader>
 
-          {step === "plans" ? (
-            <div className="mt-4">
-              <p className="text-[15px] text-white/65 leading-relaxed">
-                SmartOffer тарифицируется по объёму полезного результата. Каждый
-                тариф действует 30 календарных дней с момента активации.
-              </p>
+            {step === "plans" ? (
+              <div className="mt-4">
+                <p className="text-[15px] text-white/65 leading-relaxed">
+                  SmartOffer тарифицируется по объёму полезного результата. Каждый
+                  тариф действует 30 календарных дней с момента активации.
+                </p>
 
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {PRICING.map((plan) => (
-                  <div
-                    key={plan.name}
-                    className="border border-white/10 rounded-2xl bg-white/5 p-6 flex flex-col min-h-[230px]"
-                  >
-                    <div>
-                      <div className="text-sm text-white/55">{plan.name}</div>
-                      <div className="text-2xl font-semibold text-white mt-2">
-                        {plan.price}
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {PRICING.map((plan) => (
+                    <div
+                      key={plan.name}
+                      className="border border-white/10 rounded-2xl bg-white/5 p-6 flex flex-col min-h-[230px]"
+                    >
+                      <div>
+                        <div className="text-sm text-white/55">{plan.name}</div>
+                        <div className="text-2xl font-semibold text-white mt-2">
+                          {plan.price}
+                        </div>
+                        <div className="mt-2 text-sm text-white">{plan.limit}</div>
+                        <div className="mt-3 text-xs text-white/55">{plan.note}</div>
                       </div>
-                      <div className="mt-2 text-sm text-white">{plan.limit}</div>
-                      <div className="mt-3 text-xs text-white/55">{plan.note}</div>
-                    </div>
 
-                    <div className="mt-auto pt-5">
-                      <Button
-                        type="button"
-                        onClick={() => handleChoosePlan(plan)}
-                        className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-                      >
-                        Выбрать
-                      </Button>
+                      <div className="mt-auto pt-5">
+                        <Button
+                          type="button"
+                          onClick={() => handleChoosePlan(plan)}
+                          className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                        >
+                          Выбрать
+                        </Button>
+                      </div>
                     </div>
+                  ))}
+                </div>
+
+                <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-5">
+                  <div className="text-base font-semibold text-white mb-3">
+                    Способы оплаты
                   </div>
-                ))}
-              </div>
 
-              <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-5">
-                <div className="text-base font-semibold text-white mb-3">
-                  Способы оплаты
-                </div>
+                  <ul className="list-disc pl-5 space-y-2 text-sm leading-relaxed text-white/70">
+                    <li>По счёту для юридических лиц и ИП</li>
+                    <li>Оплата картой онлайн</li>
+                    <li>Оплата через СБП</li>
+                  </ul>
 
-                <ul className="list-disc pl-5 space-y-2 text-sm leading-relaxed text-white/70">
-                  <li>По счёту для юридических лиц и ИП</li>
-                  <li>Оплата картой онлайн</li>
-                  <li>Оплата через СБП</li>
-                </ul>
-
-                <div className="mt-4 text-sm text-white/60">
-                  Free доступен только для корпоративной почты после авторизации и
-                  верификации почты в сервисе. Для личной почты доступны только
-                  платные тарифы.
+                  <div className="mt-4 text-sm text-white/60">
+                    Free доступен только для корпоративной почты после авторизации и
+                    верификации почты в сервисе. Для личной почты доступны только
+                    платные тарифы.
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setPaymentNotice("");
-                  setPayingMethod(null);
-                  setStep("plans");
-                }}
-                className="mb-4 inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Назад к тарифам
-              </button>
+            ) : (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentNotice("");
+                    setPayingMethod(null);
+                    setStep("plans");
+                  }}
+                  className="mb-4 inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Назад к тарифам
+                </button>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-5">
-                <div className="text-lg font-semibold text-white">
-                  Выбран тариф: {selectedPlan?.name}
-                </div>
-                <div className="mt-2 text-sm text-white/70">
-                  {selectedPlan?.price} · {selectedPlan?.limit}
-                </div>
-                <div className="mt-2 text-sm text-white/60">
-                  Срок действия тарифа: 30 календарных дней с момента активации.
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <div className="text-base font-semibold text-white mb-3">
-                  Выберите способ оплаты
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => void handleHostedPayment("card")}
-                    disabled={payingMethod !== null}
-                    className="
-                      rounded-xl border border-white/10 bg-white/5
-                      px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
-                      disabled:opacity-60 disabled:cursor-not-allowed
-                    "
-                  >
-                    <div className="text-base font-semibold text-white">
-                      {payingMethod === "card" ? "Переход..." : "Карта онлайн"}
-                    </div>
-                    <div className="mt-2 text-sm text-white/65">
-                      Быстрое подключение тарифа после подтверждения оплаты.
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void handleHostedPayment("sbp")}
-                    disabled={payingMethod !== null}
-                    className="
-                      rounded-xl border border-white/10 bg-white/5
-                      px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
-                      disabled:opacity-60 disabled:cursor-not-allowed
-                    "
-                  >
-                    <div className="text-base font-semibold text-white">
-                      {payingMethod === "sbp" ? "Переход..." : "СБП"}
-                    </div>
-                    <div className="mt-2 text-sm text-white/65">
-                      Быстрый безналичный способ оплаты через банковское приложение.
-                    </div>
-                  </button>
-
-                  <div
-                    className="
-                      rounded-xl border border-white/10 bg-white/5
-                      px-5 py-5 text-left
-                    "
-                  >
-                    <div className="text-base font-semibold text-white">
-                      Счёт для юр. лиц
-                    </div>
-                    <div className="mt-2 text-sm text-white/65">
-                      Для компаний и ИП. Реквизиты указываются в форме запроса
-                      счёта.
-                    </div>
-
-                    <div className="mt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => onRequestInvoice(selectedPlan)}
-                        className="w-full border-white/15 text-white hover:bg-white/10"
-                      >
-                        Запросить счёт
-                      </Button>
-                    </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+                  <div className="text-lg font-semibold text-white">
+                    Выбран тариф: {selectedPlan?.name}
+                  </div>
+                  <div className="mt-2 text-sm text-white/70">
+                    {selectedPlan?.price} · {selectedPlan?.limit}
+                  </div>
+                  <div className="mt-2 text-sm text-white/60">
+                    Срок действия тарифа: 30 календарных дней с момента активации.
                   </div>
                 </div>
 
-                {paymentNotice ? (
-                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-                    {paymentNotice}
+                <div className="mt-5">
+                  <div className="text-base font-semibold text-white mb-3">
+                    Выберите способ оплаты
                   </div>
-                ) : null}
 
-                <div className="mt-5 text-sm text-white/55">
-                  После выбора способа оплаты откроется защищённая платёжная форма банка.
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => void handleHostedPayment("card")}
+                      disabled={payingMethod !== null}
+                      className="
+                        rounded-xl border border-white/10 bg-white/5
+                        px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                        disabled:opacity-60 disabled:cursor-not-allowed
+                      "
+                    >
+                      <div className="text-base font-semibold text-white">
+                        {payingMethod === "card" ? "Переход..." : "Карта онлайн"}
+                      </div>
+                      <div className="mt-2 text-sm text-white/65">
+                        Быстрое подключение тарифа после подтверждения оплаты.
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleHostedPayment("sbp")}
+                      disabled={payingMethod !== null}
+                      className="
+                        rounded-xl border border-white/10 bg-white/5
+                        px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                        disabled:opacity-60 disabled:cursor-not-allowed
+                      "
+                    >
+                      <div className="text-base font-semibold text-white">
+                        {payingMethod === "sbp" ? "Загрузка QR..." : "СБП"}
+                      </div>
+                      <div className="mt-2 text-sm text-white/65">
+                        Оплата по QR-коду через приложение банка.
+                      </div>
+                    </button>
+
+                    <div
+                      className="
+                        rounded-xl border border-white/10 bg-white/5
+                        px-5 py-5 text-left
+                      "
+                    >
+                      <div className="text-base font-semibold text-white">
+                        Счёт для юр. лиц
+                      </div>
+                      <div className="mt-2 text-sm text-white/65">
+                        Для компаний и ИП. Реквизиты указываются в форме запроса
+                        счёта.
+                      </div>
+
+                      <div className="mt-4">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => onRequestInvoice(selectedPlan)}
+                          className="w-full border-white/15 text-white hover:bg-white/10"
+                        >
+                          Запросить счёт
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {paymentNotice ? (
+                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                      {paymentNotice}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-5 text-sm text-white/55">
+                    После выбора способа оплаты откроется защищённая платёжная форма банка.
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <SbpQrDialog
+        open={sbpOpen}
+        onOpenChange={setSbpOpen}
+        qrSvg={sbpQrSvg}
+        statusText={sbpStatusText}
+      />
+    </>
   );
 }
 
