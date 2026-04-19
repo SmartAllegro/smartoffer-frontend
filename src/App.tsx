@@ -16,6 +16,7 @@ import PublicOffer from "./pages/PublicOffer";
 import Docs from "./pages/Docs";
 import DataRetentionPolicy from "./pages/DataRetentionPolicy";
 import PersonalDataConsent from "./pages/PersonalDataConsent";
+import PaymentResult from "./pages/PaymentResult";
 
 const queryClient = new QueryClient();
 
@@ -37,6 +38,7 @@ const App = () => (
           <Route path="/data-retention" element={<DataRetentionPolicy />} />
           <Route path="/personal-data-consent" element={<PersonalDataConsent />} />
           <Route path="*" element={<NotFound />} />
+          <Route path="/payment-result" element={<PaymentResult />} />
         </Routes>
       </HashRouter>
     </TooltipProvider>

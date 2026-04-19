@@ -20,6 +20,8 @@ import {
 } from "@/shared/ui/dialog";
 import { fetchMe, type UserMe } from "@/api/auth";
 import { sendSupportRequest } from "@/api/support";
+import { initTbankPayment } from "@/api/payments";
+import { useToast } from "@/shared/hooks/use-toast";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
 
 type SupportStep = "chooser" | "email";
@@ -27,7 +29,7 @@ type PricingStep = "plans" | "payment";
 
 const TELEGRAM_URL =
   import.meta.env.VITE_SUPPORT_TELEGRAM_URL ||
-  "https://t.me/smartoffer_support?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%20%D0%BC%D0%B5%D0%BD%D1%8F%20%D0%B2%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BF%D0%BE%20SmartOffer.";
+  "https://t.me/smartoffer_support?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%20%D0%BC%D0%B5%D0%BD%D1%8F%20%D0%B2%D0%BE%D0%BF%D1%80%D0%BE%D1%81%20%D0%BF%D0%BE%20SmartOffer.";
 
 const PRICING = [
   {
@@ -57,6 +59,14 @@ const PRICING = [
 ] as const;
 
 type PricingPlan = (typeof PRICING)[number];
+
+function planToCode(plan: PricingPlan | null): string | null {
+  if (!plan) return null;
+  if (plan.name === "200") return "start_200";
+  if (plan.name === "500") return "pro_500";
+  if (plan.name === "1000") return "max_1000";
+  return null;
+}
 
 function TelegramIcon({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -366,14 +376,18 @@ function PricingModal({
   onOpenChange: (value: boolean) => void;
   onRequestInvoice: (plan: PricingPlan | null) => void;
 }) {
+  const { toast } = useToast();
+
   const [step, setStep] = useState<PricingStep>("plans");
   const [selectedPlan, setSelectedPlan] = useState<PricingPlan | null>(null);
   const [paymentNotice, setPaymentNotice] = useState("");
+  const [payingMethod, setPayingMethod] = useState<"card" | "sbp" | null>(null);
 
   function resetState() {
     setStep("plans");
     setSelectedPlan(null);
     setPaymentNotice("");
+    setPayingMethod(null);
   }
 
   function closeModal(next: boolean) {
@@ -389,6 +403,42 @@ function PricingModal({
     setSelectedPlan(plan);
     setPaymentNotice("");
     setStep("payment");
+  }
+
+  async function handleHostedPayment(method: "card" | "sbp") {
+    if (!selectedPlan) return;
+
+    const planCode = planToCode(selectedPlan);
+    if (!planCode) {
+      const msg =
+        "Для тарифа Free оплата не требуется. Этот тариф подключается отдельно по правилам сервиса.";
+      setPaymentNotice(msg);
+      return;
+    }
+
+    try {
+      setPaymentNotice("");
+      setPayingMethod(method);
+
+      const result = await initTbankPayment({
+        plan_code: planCode,
+        preferred_method: method,
+      });
+
+      window.location.href = result.payment_url;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось создать платёж";
+
+      setPaymentNotice(message);
+      toast({
+        title: "Ошибка оплаты",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setPayingMethod(null);
+    }
   }
 
   return (
@@ -476,6 +526,7 @@ function PricingModal({
                 type="button"
                 onClick={() => {
                   setPaymentNotice("");
+                  setPayingMethod(null);
                   setStep("plans");
                 }}
                 className="mb-4 inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
@@ -504,18 +555,16 @@ function PricingModal({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <button
                     type="button"
-                    onClick={() =>
-                      setPaymentNotice(
-                        "Оплата по карте будет подключена следующим этапом."
-                      )
-                    }
+                    onClick={() => void handleHostedPayment("card")}
+                    disabled={payingMethod !== null}
                     className="
                       rounded-xl border border-white/10 bg-white/5
                       px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                      disabled:opacity-60 disabled:cursor-not-allowed
                     "
                   >
                     <div className="text-base font-semibold text-white">
-                      Карта онлайн
+                      {payingMethod === "card" ? "Переход..." : "Карта онлайн"}
                     </div>
                     <div className="mt-2 text-sm text-white/65">
                       Быстрое подключение тарифа после подтверждения оплаты.
@@ -524,17 +573,17 @@ function PricingModal({
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setPaymentNotice(
-                        "Оплата через СБП будет подключена следующим этапом."
-                      )
-                    }
+                    onClick={() => void handleHostedPayment("sbp")}
+                    disabled={payingMethod !== null}
                     className="
                       rounded-xl border border-white/10 bg-white/5
                       px-5 py-5 text-left transition hover:border-primary/60 hover:bg-white/10
+                      disabled:opacity-60 disabled:cursor-not-allowed
                     "
                   >
-                    <div className="text-base font-semibold text-white">СБП</div>
+                    <div className="text-base font-semibold text-white">
+                      {payingMethod === "sbp" ? "Переход..." : "СБП"}
+                    </div>
                     <div className="mt-2 text-sm text-white/65">
                       Быстрый безналичный способ оплаты через банковское приложение.
                     </div>
@@ -574,9 +623,7 @@ function PricingModal({
                 ) : null}
 
                 <div className="mt-5 text-sm text-white/55">
-                  Сейчас в интерфейсе подготовлен сценарий выбора тарифа и способа
-                  оплаты. Интеграция онлайн-оплаты картой и через СБП подключается
-                  следующим этапом.
+                  После выбора способа оплаты откроется защищённая платёжная форма банка.
                 </div>
               </div>
             </div>
