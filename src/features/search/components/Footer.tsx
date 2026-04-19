@@ -252,7 +252,7 @@ function SbpBanksDialog({
                   "
                 >
                   <div className="font-medium text-white">
-                    {submittingBankId === bank.bank_id ? "Открываем..." : bank.name}
+                    {submittingBankId === bank.bank_id ? "Открываем..." : (bank.bank_name || "Банк")}
                   </div>
                 </button>
               ))
@@ -275,17 +275,6 @@ function SbpBanksDialog({
   );
 }
 
-const INVOICE_REQUISITES_TEMPLATE = `ООО / ИП
-ИНН
-КПП
-ОГРН / ОГРНИП
-Юридический адрес
-Почта для документов
-Банк
-р/с
-к/с
-БИК`;
-
 function InvoiceRequestModal({
   open,
   onOpenChange,
@@ -299,7 +288,7 @@ function InvoiceRequestModal({
   const [meLoading, setMeLoading] = useState(false);
 
   const [subject, setSubject] = useState("");
-  const [requisites, setRequisites] = useState(INVOICE_REQUISITES_TEMPLATE);
+  const [requisites, setRequisites] = useState("");
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [successText, setSuccessText] = useState("");
@@ -356,7 +345,7 @@ function InvoiceRequestModal({
 
   function resetState() {
     setSubject("");
-    setRequisites(INVOICE_REQUISITES_TEMPLATE);
+    setRequisites("");
     setComment("");
     setLoading(false);
     setSuccessText("");
@@ -406,7 +395,7 @@ function InvoiceRequestModal({
       setSuccessText(
         `Запрос отправлен. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
       );
-      setRequisites(INVOICE_REQUISITES_TEMPLATE);
+      setRequisites("");
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить запрос"
@@ -481,7 +470,19 @@ function InvoiceRequestModal({
                 <Textarea
                   value={requisites}
                   onChange={(e) => setRequisites(e.target.value)}
-                  className="min-h-[190px] border-white/10 bg-white/5 text-white"
+                  placeholder={`Укажите реквизиты компании:
+ООО / ИП
+ИНН
+КПП
+ОГРН / ОГРНИП
+Юридический адрес
+Почта для документов
+Телефон
+Банк
+р/с
+к/с
+БИК`}
+                  className="min-h-[190px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
                 />
               </div>
 
@@ -679,10 +680,31 @@ function PricingModal({
               payment_order_id: result.order_id,
               os: mobileOs,
             });
-            setSbpBanks(banks.items || []);
-            setSbpStatusText("Выберите банк для оплаты.");
-            setSbpBanksOpen(true);
-            return;
+
+            const items = Array.isArray(banks.items) ? banks.items : [];
+            if (items.length > 0) {
+              setSbpBanks(items);
+              setSbpStatusText("Выберите банк для оплаты.");
+              setSbpBanksOpen(true);
+              return;
+            }
+
+            if (result.sbp_qr_svg) {
+              setSbpQrSvg(result.sbp_qr_svg);
+              setSbpStatusText("Список банков недоступен. Используйте QR-код для оплаты.");
+              setSbpOpen(true);
+              return;
+            }
+
+            throw new Error("Т-Банк не вернул список банков СБП.");
+          } catch (error) {
+            if (result.sbp_qr_svg) {
+              setSbpQrSvg(result.sbp_qr_svg);
+              setSbpStatusText("Список банков недоступен. Используйте QR-код для оплаты.");
+              setSbpOpen(true);
+              return;
+            }
+            throw error;
           } finally {
             setSbpBanksLoading(false);
           }

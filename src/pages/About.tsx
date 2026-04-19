@@ -225,7 +225,7 @@ function SbpBanksDialog({
                   "
                 >
                   <div className="font-medium text-white">
-                    {submittingBankId === bank.bank_id ? "Открываем..." : bank.name}
+                    {submittingBankId === bank.bank_id ? "Открываем..." : (bank.bank_name || "Банк")}
                   </div>
                 </button>
               ))
@@ -248,17 +248,6 @@ function SbpBanksDialog({
   );
 }
 
-const INVOICE_REQUISITES_TEMPLATE = `ООО / ИП
-ИНН
-КПП
-ОГРН / ОГРНИП
-Юридический адрес
-Почта для документов
-Банк
-р/с
-к/с
-БИК`;
-
 function InvoiceRequestModal({
   open,
   onOpenChange,
@@ -272,7 +261,7 @@ function InvoiceRequestModal({
   const [meLoading, setMeLoading] = useState(false);
 
   const [subject, setSubject] = useState("");
-  const [requisites, setRequisites] = useState(INVOICE_REQUISITES_TEMPLATE);
+  const [requisites, setRequisites] = useState("");
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [successText, setSuccessText] = useState("");
@@ -329,7 +318,7 @@ function InvoiceRequestModal({
 
   function resetState() {
     setSubject("");
-    setRequisites(INVOICE_REQUISITES_TEMPLATE);
+    setRequisites("");
     setComment("");
     setLoading(false);
     setSuccessText("");
@@ -379,7 +368,7 @@ function InvoiceRequestModal({
       setSuccessText(
         `Запрос отправлен. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
       );
-      setRequisites(INVOICE_REQUISITES_TEMPLATE);
+      setRequisites("");
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить запрос"
@@ -391,139 +380,136 @@ function InvoiceRequestModal({
 
   return (
     <Dialog open={open} onOpenChange={closeModal}>
-  <DialogContent
-    className="
-      w-[calc(100vw-16px)]
-      sm:w-full
-      max-w-[640px]
-      max-h-[90vh]
-      overflow-hidden
-      rounded-xl
-      border border-white/10
-      bg-card
-      p-0
-      text-white
-      shadow-2xl
-      [&_[data-radix-dialog-close]]:text-white/60
-      [&_[data-radix-dialog-close]]:hover:text-white
-    "
-  >
-    <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
-      <DialogHeader className="space-y-0 text-left">
-        <DialogTitle className="text-[22px] font-semibold text-white">
-          Запросить счет
-        </DialogTitle>
-      </DialogHeader>
+      <DialogContent
+        className="
+          max-w-[640px]
+          rounded-xl
+          border border-white/10
+          bg-card
+          p-0
+          text-white
+          shadow-2xl
+          [&_[data-radix-dialog-close]]:text-white/60
+          [&_[data-radix-dialog-close]]:hover:text-white
+        "
+      >
+        <div className="rounded-xl px-7 py-6">
+          <DialogHeader className="space-y-0 text-left">
+            <DialogTitle className="text-[22px] font-semibold text-white">
+              Запросить счет
+            </DialogTitle>
+          </DialogHeader>
 
-      <div className="mt-4">
-        <p className="text-[15px] text-white/60">
-          Укажите реквизиты компании для выставления счета. Сообщение будет
-          отправлено от вашего авторизованного аккаунта на info@smartoffer.pro.
-        </p>
+          <div className="mt-4">
+            <p className="text-[15px] text-white/60">
+              Укажите реквизиты компании для выставления счета. Сообщение будет
+              отправлено от вашего авторизованного аккаунта на info@smartoffer.pro.
+            </p>
 
-        <div className="mt-5 space-y-4">
-          {meLoading ? (
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
-              Загружаем профиль...
-            </div>
-          ) : me?.email ? (
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
-              Обращение будет отправлено от авторизованного аккаунта:{" "}
-              {me.email}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              Для отправки запроса нужно войти в аккаунт.
-            </div>
-          )}
+            <div className="mt-5 space-y-4">
+              {meLoading ? (
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+                  Загружаем профиль...
+                </div>
+              ) : me?.email ? (
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+                  Обращение будет отправлено от авторизованного аккаунта:{" "}
+                  {me.email}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  Для отправки запроса нужно войти в аккаунт.
+                </div>
+              )}
 
-          <div>
-            <label className="mb-2 block text-sm text-white/80">Тема</label>
-            <Input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Например: Счет на тариф 500 запросов"
-              className="h-11 border-white/10 bg-white/5 text-white placeholder:text-white/35"
-            />
-          </div>
+              <div>
+                <label className="mb-2 block text-sm text-white/80">Тема</label>
+                <Input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Например: Счет на тариф 500 запросов"
+                  className="h-11 border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                />
+              </div>
 
-          <div>
-            <label className="mb-2 block text-sm text-white/80">
-              Реквизиты для счета
-            </label>
-            <Textarea
-              value={requisites}
-              onChange={(e) => setRequisites(e.target.value)}
-              placeholder={`Укажите реквизиты компании:
+              <div>
+                <label className="mb-2 block text-sm text-white/80">
+                  Реквизиты для счета
+                </label>
+                <Textarea
+                  value={requisites}
+                  onChange={(e) => setRequisites(e.target.value)}
+                  placeholder={`Укажите реквизиты компании:
 ООО / ИП
 ИНН
 КПП
 ОГРН / ОГРНИП
 Юридический адрес
 Почта для документов
+Телефон
 Банк
 р/с
 к/с
 БИК`}
-              className="min-h-[190px] border-white/10 bg-white/5 text-white"
-            />
-          </div>
+                  className="min-h-[190px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                />
+              </div>
 
-          <div>
-            <label className="mb-2 block text-sm text-white/80">
-              Комментарий
-              <span className="ml-1 text-white/45">(необязательно)</span>
-            </label>
-            <Textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Можно указать нужный тариф, количество запросов или дополнительные пожелания"
-              className="min-h-[110px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
-            />
-          </div>
+              <div>
+                <label className="mb-2 block text-sm text-white/80">
+                  Комментарий
+                  <span className="ml-1 text-white/45">(необязательно)</span>
+                </label>
+                <Textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Можно указать нужный тариф, количество запросов или дополнительные пожелания"
+                  className="min-h-[110px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                />
+              </div>
 
-          {errorText ? (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {errorText}
+              {errorText ? (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  {errorText}
+                </div>
+              ) : null}
+
+              {successText ? (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                  {successText}
+                </div>
+              ) : null}
+
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!canSubmit || loading || meLoading}
+                  className="h-11 min-w-[220px] bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Отправка...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" />
+                      Отправить запрос
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              <div className="text-sm text-white/55">
+                Мы ответим в течение рабочего дня и подготовим счет по указанным
+                реквизитам.
+              </div>
             </div>
-          ) : null}
-
-          {successText ? (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-              {successText}
-            </div>
-          ) : null}
-
-          <div className="pt-2">
-            <Button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!canSubmit || loading || meLoading}
-              className="h-11 min-w-[220px] bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Отправка...
-                </>
-              ) : (
-                <>
-                  <Send className="mr-2 h-4 w-4" />
-                  Отправить запрос
-                </>
-              )}
-            </Button>
-          </div>
-
-          <div className="text-sm text-white/55">
-            Мы ответим в течение рабочего дня и подготовим счет по указанным
-            реквизитам.
           </div>
         </div>
-      </div>
-    </div>
-  </DialogContent>
-</Dialog>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -647,10 +633,31 @@ function PlanPaymentModal({
               payment_order_id: result.order_id,
               os: mobileOs,
             });
-            setSbpBanks(banks.items || []);
-            setSbpStatusText("Выберите банк для оплаты.");
-            setSbpBanksOpen(true);
-            return;
+
+            const items = Array.isArray(banks.items) ? banks.items : [];
+            if (items.length > 0) {
+              setSbpBanks(items);
+              setSbpStatusText("Выберите банк для оплаты.");
+              setSbpBanksOpen(true);
+              return;
+            }
+
+            if (result.sbp_qr_svg) {
+              setSbpQrSvg(result.sbp_qr_svg);
+              setSbpStatusText("Список банков недоступен. Используйте QR-код для оплаты.");
+              setSbpOpen(true);
+              return;
+            }
+
+            throw new Error("Т-Банк не вернул список банков СБП.");
+          } catch (error) {
+            if (result.sbp_qr_svg) {
+              setSbpQrSvg(result.sbp_qr_svg);
+              setSbpStatusText("Список банков недоступен. Используйте QR-код для оплаты.");
+              setSbpOpen(true);
+              return;
+            }
+            throw error;
           } finally {
             setSbpBanksLoading(false);
           }
