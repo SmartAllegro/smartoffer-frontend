@@ -275,6 +275,17 @@ function SbpBanksDialog({
   );
 }
 
+const INVOICE_REQUISITES_TEMPLATE = `ООО / ИП
+ИНН
+КПП
+ОГРН / ОГРНИП
+Юридический адрес
+Почта для документов
+Банк
+р/с
+к/с
+БИК`;
+
 function InvoiceRequestModal({
   open,
   onOpenChange,
@@ -288,7 +299,7 @@ function InvoiceRequestModal({
   const [meLoading, setMeLoading] = useState(false);
 
   const [subject, setSubject] = useState("");
-  const [requisites, setRequisites] = useState("");
+  const [requisites, setRequisites] = useState(INVOICE_REQUISITES_TEMPLATE);
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [successText, setSuccessText] = useState("");
@@ -345,7 +356,7 @@ function InvoiceRequestModal({
 
   function resetState() {
     setSubject("");
-    setRequisites("");
+    setRequisites(INVOICE_REQUISITES_TEMPLATE);
     setComment("");
     setLoading(false);
     setSuccessText("");
@@ -395,7 +406,7 @@ function InvoiceRequestModal({
       setSuccessText(
         `Запрос отправлен. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
       );
-      setRequisites("");
+      setRequisites(INVOICE_REQUISITES_TEMPLATE);
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить запрос"
@@ -412,8 +423,7 @@ function InvoiceRequestModal({
           w-[calc(100vw-16px)]
           sm:w-full
           max-w-[640px]
-          h-[82vh]
-          max-h-[82vh]
+          max-h-[90vh]
           overflow-hidden
           rounded-xl
           border border-white/10
@@ -425,7 +435,7 @@ function InvoiceRequestModal({
           [&_[data-radix-dialog-close]]:hover:text-white
         "
       >
-        <div className="invoice-scroll h-full overflow-y-scroll overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
+        <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
           <DialogHeader className="space-y-0 text-left">
             <DialogTitle className="text-[22px] font-semibold text-white">
               Запросить счет
@@ -471,19 +481,7 @@ function InvoiceRequestModal({
                 <Textarea
                   value={requisites}
                   onChange={(e) => setRequisites(e.target.value)}
-                  placeholder={`Укажите реквизиты компании:
-ООО / ИП
-ИНН
-КПП
-ОГРН / ОГРНИП
-Юридический адрес
-Почта для документов
-Телефон
-Банк
-р/с
-к/с
-БИК`}
-                  className="min-h-[190px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                  className="min-h-[190px] border-white/10 bg-white/5 text-white"
                 />
               </div>
 
