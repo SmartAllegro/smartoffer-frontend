@@ -43,41 +43,45 @@ const scrollToPricing = () => {
 
 const PRICING = [
   {
-    name: "Free",
+    code: "free_50",
+    name: "Пробный",
     price: "0 ₽",
     limit: "50 запросов",
     note: "Только для корпоративной почты",
+    isFree: true,
   },
   {
-    name: "200",
+    code: "start_200",
+    name: "Старт",
     price: "3 000 ₽",
     limit: "200 запросов",
     note: "Старт для регулярных RFQ",
+    isFree: false,
   },
   {
-    name: "500",
+    code: "pro_500",
+    name: "Профи",
     price: "5 500 ₽",
     limit: "500 запросов",
     note: "Оптимальный баланс",
+    isFree: false,
   },
   {
-    name: "1000",
+    code: "max_1000",
+    name: "Бизнес",
     price: "9 000 ₽",
     limit: "1000 запросов",
     note: "Для активных закупок",
+    isFree: false,
   },
 ] as const;
 
 type PricingPlan = (typeof PRICING)[number];
 
 function planToCode(plan: PricingPlan | null): string | null {
-  if (!plan) return null;
-  if (plan.name === "200") return "start_200";
-  if (plan.name === "500") return "pro_500";
-  if (plan.name === "1000") return "max_1000";
-  return null;
+  if (!plan || plan.isFree) return null;
+  return plan.code;
 }
-
 function detectMobileOs(): "ios" | "android" | null {
   const ua = navigator.userAgent.toLowerCase();
   if (/iphone|ipad|ipod/.test(ua)) return "ios";
@@ -248,6 +252,41 @@ function SbpBanksDialog({
   );
 }
 
+const INVOICE_REQUISITES_TEMPLATE = `ООО / ИП
+ИНН
+КПП
+ОГРН / ОГРНИП
+Юридический адрес
+Почта для документов
+Банк
+р/с
+к/с
+БИК`;
+
+const INVOICE_REQUISITES_STORAGE_KEY = "SMARTOFFER_INVOICE_REQUISITES_V1";
+
+function loadSavedInvoiceRequisites(): string {
+  try {
+    const raw = localStorage.getItem(INVOICE_REQUISITES_STORAGE_KEY)?.trim();
+    return raw && raw.length > 0 ? raw : INVOICE_REQUISITES_TEMPLATE;
+  } catch {
+    return INVOICE_REQUISITES_TEMPLATE;
+  }
+}
+
+function saveInvoiceRequisites(value: string) {
+  try {
+    const normalized = value.trim();
+    if (!normalized) {
+      localStorage.removeItem(INVOICE_REQUISITES_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(INVOICE_REQUISITES_STORAGE_KEY, value);
+  } catch {
+    // ignore localStorage errors
+  }
+}
+
 function InvoiceRequestModal({
   open,
   onOpenChange,
@@ -261,7 +300,7 @@ function InvoiceRequestModal({
   const [meLoading, setMeLoading] = useState(false);
 
   const [subject, setSubject] = useState("");
-  const [requisites, setRequisites] = useState("");
+  const [requisites, setRequisites] = useState(() => loadSavedInvoiceRequisites());
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [successText, setSuccessText] = useState("");
@@ -289,11 +328,9 @@ function InvoiceRequestModal({
   useEffect(() => {
     if (!open) return;
 
-    if (selectedPlan?.name === "Free") {
-      setSubject("Запрос по тарифу Free");
-      setComment(
-        "Интересует подключение тарифа Free для корпоративной почты."
-      );
+    if (selectedPlan?.isFree) {
+      setSubject('Запрос по тарифу "Пробный"');
+      setComment('Интересует подключение тарифа "Пробный" для корпоративной почты.');
       return;
     }
 
@@ -307,6 +344,15 @@ function InvoiceRequestModal({
     setComment("");
   }, [open, selectedPlan]);
 
+  useEffect(() => {
+    if (!open) return;
+    setRequisites(loadSavedInvoiceRequisites());
+  }, [open]);
+
+  useEffect(() => {
+    saveInvoiceRequisites(requisites);
+  }, [requisites]);
+
   const canSubmit = useMemo(() => {
     return (
       !!me?.email &&
@@ -318,7 +364,7 @@ function InvoiceRequestModal({
 
   function resetState() {
     setSubject("");
-    setRequisites("");
+    setRequisites(loadSavedInvoiceRequisites());
     setComment("");
     setLoading(false);
     setSuccessText("");
@@ -368,7 +414,7 @@ function InvoiceRequestModal({
       setSuccessText(
         `Запрос отправлен. № обращения: ${res.ticket_number}. Мы ответим в течение рабочего дня.`
       );
-      setRequisites("");
+      setComment("");
     } catch (error) {
       setErrorText(
         error instanceof Error ? error.message : "Не удалось отправить запрос"
@@ -382,7 +428,11 @@ function InvoiceRequestModal({
     <Dialog open={open} onOpenChange={closeModal}>
       <DialogContent
         className="
+          w-[calc(100vw-16px)]
+          sm:w-full
           max-w-[640px]
+          max-h-[90vh]
+          overflow-hidden
           rounded-xl
           border border-white/10
           bg-card
@@ -393,7 +443,7 @@ function InvoiceRequestModal({
           [&_[data-radix-dialog-close]]:hover:text-white
         "
       >
-        <div className="rounded-xl px-7 py-6">
+        <div className="max-h-[90vh] overflow-y-auto overscroll-contain rounded-xl px-4 py-5 sm:px-7 sm:py-6">
           <DialogHeader className="space-y-0 text-left">
             <DialogTitle className="text-[22px] font-semibold text-white">
               Запросить счет
@@ -413,8 +463,7 @@ function InvoiceRequestModal({
                 </div>
               ) : me?.email ? (
                 <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
-                  Обращение будет отправлено от авторизованного аккаунта:{" "}
-                  {me.email}
+                  Обращение будет отправлено от авторизованного аккаунта: {me.email}
                 </div>
               ) : (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -439,19 +488,8 @@ function InvoiceRequestModal({
                 <Textarea
                   value={requisites}
                   onChange={(e) => setRequisites(e.target.value)}
-                  placeholder={`Укажите реквизиты компании:
-ООО / ИП
-ИНН
-КПП
-ОГРН / ОГРНИП
-Юридический адрес
-Почта для документов
-Телефон
-Банк
-р/с
-к/с
-БИК`}
-                  className="min-h-[190px] border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                  placeholder="Укажите реквизиты компании"
+                  className="min-h-[210px] resize-y border-white/10 bg-white/5 text-white placeholder:text-white/35"
                 />
               </div>
 
@@ -512,7 +550,6 @@ function InvoiceRequestModal({
     </Dialog>
   );
 }
-
 function PlanPaymentModal({
   open,
   onOpenChange,
@@ -602,11 +639,11 @@ function PlanPaymentModal({
 
     const planCode = planToCode(selectedPlan);
     if (!planCode) {
-      setPaymentNotice(
-        "Для тарифа Free оплата не требуется. Этот тариф подключается отдельно по правилам сервиса."
-      );
-      return;
-    }
+  setPaymentNotice(
+    'Для тарифа "Пробный" оплата не требуется. Этот тариф подключается отдельно по правилам сервиса.'
+  );
+  return;
+}
 
     try {
       setPaymentNotice("");
