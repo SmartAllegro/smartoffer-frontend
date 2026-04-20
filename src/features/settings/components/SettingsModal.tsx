@@ -78,6 +78,7 @@ function normalizeSecurity(v: string): "ssl" | "starttls" {
 function getBillingStatusLabel(status?: string) {
   if (status === "active") return "Поиск доступен";
   if (status === "exhausted") return "Лимит исчерпан";
+  if (status === "expired") return "Срок тарифа истёк";
   return "Поиск заблокирован";
 }
 
@@ -95,6 +96,41 @@ function getBillingTone(status?: string, remaining?: number) {
     return "border-yellow-500/30 bg-yellow-500/10";
   }
   return "border-primary/20 bg-primary/5";
+}
+
+function formatBillingDate(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function getBillingPeriodLabel(billing: BillingMe | null) {
+  if (!billing?.current_plan_code) return "Срок не задан";
+
+  if (billing.current_plan_code === "free_50") {
+    return "Без ограничения по дате";
+  }
+
+  if (billing.status === "expired" && billing.expired_at) {
+    return `Истёк ${formatBillingDate(billing.expired_at)}`;
+  }
+
+  if (billing.expires_at) {
+    return `До ${formatBillingDate(billing.expires_at)}`;
+  }
+
+  if (billing.activated_at) {
+    return `Активирован ${formatBillingDate(billing.activated_at)}`;
+  }
+
+  return "Срок не задан";
 }
 
 function getSmtpSuccessMessage(billing: BillingMe | null) {
@@ -177,6 +213,7 @@ export function SettingsModal({
   const currentPlanCode = billing?.current_plan_code ?? null;
   const requestsRemaining = Math.max(Number(billing?.requests_remaining ?? 0), 0);
   const requestsLimit = Math.max(Number(billing?.requests_limit ?? 0), 0);
+const billingPeriodLabel = getBillingPeriodLabel(billing);
 
   const refreshBilling = React.useCallback(async (): Promise<BillingMe | null> => {
   try {
@@ -708,8 +745,17 @@ if (!offerAccepted) {
                         </div>
                       </div>
 
-                        <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
-                        {billing.has_verified_email ? (
+<div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+  <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+    Срок действия
+  </div>
+  <div className="mt-1 text-sm font-medium text-foreground">
+    {billingPeriodLabel}
+  </div>
+</div>
+
+<div className="mt-3 text-sm text-muted-foreground leading-relaxed">
+  {billing.has_verified_email ? (
                           billing.email_domain_type === "public" ? (
                             <>
                               Подтвержденный email:{" "}

@@ -22,7 +22,7 @@ export type BillingMe = {
   requests_used: number;
   requests_remaining: number;
 
-  status: "active" | "exhausted" | "blocked" | string;
+  status: "active" | "exhausted" | "blocked" | "expired" | string;
 
   has_verified_email: boolean;
   verified_from_email: string | null;
@@ -34,6 +34,9 @@ export type BillingMe = {
   can_search: boolean;
 
   free_granted_at: string | null;
+  activated_at: string | null;
+  expires_at: string | null;
+  expired_at: string | null;
 };
 
 export async function fetchBillingPlans(): Promise<BillingPlansResponse> {
