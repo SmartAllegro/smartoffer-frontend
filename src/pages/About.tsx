@@ -31,6 +31,7 @@ import {
 } from "@/api/payments";
 import { useToast } from "@/shared/hooks/use-toast";
 import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
+import { RadarLogo } from "@/shared/ui/RadarLogo";
 
 type PaymentMethod = "card" | "sbp";
 
@@ -907,20 +908,29 @@ export default function About() {
   }
 
   return (
-    <>
-      <div className="min-h-screen bg-background">
-        <div className="max-w-5xl mx-auto px-6 py-10">
-          <div className="mb-6">
-            <Button asChild variant="outline" className="gap-2">
-              <Link to="/">
-                <ArrowLeft className="w-4 h-4" />
-                На главную
-              </Link>
-            </Button>
-          </div>
+  <>
+    <div className="min-h-screen bg-background">
+      <div className="relative max-w-5xl mx-auto px-6 py-10">
+        <div
+  aria-hidden="true"
+  className="pointer-events-none absolute right-full top-[104px] mr-12 hidden 2xl:block"
+>
+  <div className="relative flex h-[250px] w-[250px] items-center justify-center rounded-full bg-[radial-gradient(circle,rgba(255,191,0,0.08),rgba(255,191,0,0.02)_45%,transparent_72%)] shadow-[0_0_70px_rgba(255,191,0,0.10)]">
+    <RadarLogo isActive={true} size={330} />
+  </div>
+</div>
+
+        <div className="mb-6">
+          <Button asChild variant="outline" className="gap-2">
+            <Link to="/">
+              <ArrowLeft className="w-4 h-4" />
+              На главную
+            </Link>
+          </Button>
+        </div>
 
           <section className="border border-border rounded-2xl bg-card p-7">
-            <div className="flex flex-col gap-5">
+           <div className="flex flex-col gap-5">
               <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                 <BadgeCheck className="w-4 h-4" />
                 SmartOffer.pro — автоматизация RFQ
@@ -928,7 +938,7 @@ export default function About() {
 
               <div className="space-y-3">
                 <h1 className="text-3xl md:text-4xl font-semibold text-foreground leading-tight">
-                  SmartOffer ускоряет поиск поставщиков и отправку запросов КП
+                  SmartOffer.pro ускоряет поиск поставщиков и отправку запросов КП
                 </h1>
 
                 <p className="text-muted-foreground leading-relaxed max-w-2xl">
@@ -951,12 +961,68 @@ export default function About() {
                 </Button>
               </div>
 
-              <div className="text-xs text-muted-foreground max-w-2xl">
-                “Запрос” — один поиск поставщиков под один RFQ с формированием результатов и
-                возможностью отправки письма.
-              </div>
+              <div className="mt-5 max-w-3xl rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+  <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+    Термины
+  </div>
+
+  <p className="text-xs text-muted-foreground leading-relaxed">
+    <span className="font-medium text-foreground">Запрос</span> — один поиск
+    поставщиков под один RFQ с формированием результатов и возможностью
+    отправки письма.
+  </p>
+
+  <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+    <span className="font-medium text-foreground">RFQ</span> (Request for
+    Quotation) — запрос на предложение, который организация отправляет
+    потенциальным поставщикам, чтобы получить предложения по цене на продукт
+    или услугу.
+  </p>
+</div>
             </div>
           </section>
+
+<section className="mt-6">
+  <h2 className="text-xl font-semibold text-foreground mb-4">
+    Как работает SmartOffer.pro
+  </h2>
+
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    {[
+      {
+        step: "Шаг 1",
+        title: "Поиск поставщиков",
+        text: "Введите запрос оборудования — получите список релевантных компаний.",
+      },
+      {
+        step: "Шаг 2",
+        title: "Контакты",
+        text: "SmartOffer извлекает email и готовит список для рассылки.",
+      },
+      {
+        step: "Шаг 3",
+        title: "Отправка RFQ",
+        text: "Вы выбираете поставщиков и отправляете письмо в 1 клик.",
+      },
+      {
+        step: "Шаг 4",
+        title: "История",
+        text: "Результаты, статусы отправки и текст письма сохраняются.",
+      },
+    ].map((c) => (
+      <div
+        key={c.step}
+        className="border border-border rounded-2xl bg-card p-6"
+      >
+        <div className="text-xs text-muted-foreground mb-2">{c.step}</div>
+        <div className="font-medium text-foreground mb-2">{c.title}</div>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          {c.text}
+        </p>
+      </div>
+    ))}
+  </div>
+</section>
 
           <section className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="border border-border rounded-2xl bg-card p-6 flex flex-col">
@@ -1083,49 +1149,7 @@ export default function About() {
             </div>
           </section>
 
-          <section className="mt-10">
-            <h2 className="text-xl font-semibold text-foreground mb-4">
-              Как работает SmartOffer
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {[
-                {
-                  step: "Шаг 1",
-                  title: "Поиск поставщиков",
-                  text: "Введите запрос оборудования — получите список релевантных компаний.",
-                },
-                {
-                  step: "Шаг 2",
-                  title: "Контакты",
-                  text: "SmartOffer извлекает email и готовит список для рассылки.",
-                },
-                {
-                  step: "Шаг 3",
-                  title: "Отправка RFQ",
-                  text: "Вы выбираете поставщиков и отправляете письмо в 1 клик.",
-                },
-                {
-                  step: "Шаг 4",
-                  title: "История",
-                  text: "Результаты, статусы отправки и текст письма сохраняются.",
-                },
-              ].map((c) => (
-                <div
-                  key={c.step}
-                  className="border border-border rounded-2xl bg-card p-6"
-                >
-                  <div className="text-xs text-muted-foreground mb-2">{c.step}</div>
-                  <div className="font-medium text-foreground mb-2">{c.title}</div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {c.text}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section id="pricing" className="mt-12 scroll-mt-24">
+                    <section id="pricing" className="mt-6 scroll-mt-24">
             <div className="mb-4">
               <h2 className="text-xl font-semibold text-foreground">Тарифы и лимиты</h2>
               <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
@@ -1166,7 +1190,7 @@ export default function About() {
             </div>
           </section>
 
-          <section className="mt-12">
+          <section className="mt-6">
             <h2 className="text-xl font-semibold text-foreground mb-4">FAQ</h2>
 
             <div className="space-y-3">
@@ -1224,10 +1248,10 @@ export default function About() {
       />
 
       <InvoiceRequestModal
-        open={invoiceOpen}
-        onOpenChange={setInvoiceOpen}
-        selectedPlan={selectedPlan}
-      />
-    </>
-  );
+  open={invoiceOpen}
+  onOpenChange={setInvoiceOpen}
+  selectedPlan={selectedPlan}
+/>
+</>
+);
 }
