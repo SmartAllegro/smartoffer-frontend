@@ -1024,6 +1024,42 @@ export default function About() {
   </div>
 </section>
 
+<section className="mt-8 overflow-hidden rounded-2xl border border-border bg-card">
+  <div className="grid grid-cols-1 lg:grid-cols-[0.85fr_1.6fr]">
+    <div className="border-b border-border p-6 lg:border-b-0 lg:border-r md:p-7">
+      <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        Демонстрация
+      </div>
+
+      <h2 className="mt-3 text-xl font-semibold text-foreground">
+        Реальный поиск поставщиков
+      </h2>
+
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        Посмотрите, как SmartOffer помогает найти поставщиков под конкретный RFQ:
+        от ввода оборудования до подготовки списка контактов для отправки запроса КП и получения письма поставщиком.
+      </p>
+
+      
+    </div>
+
+    <div className="p-3 md:p-4">
+      <div className="overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+        <video
+          className="block w-full bg-black"
+          controls
+          preload="metadata"
+          playsInline
+        >
+          <source src="/videos/smartoffer-demo.mp4" type="video/mp4" />
+         
+          Ваш браузер не поддерживает воспроизведение видео.
+        </video>
+      </div>
+    </div>
+  </div>
+</section>
+
           <section className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="border border-border rounded-2xl bg-card p-6 flex flex-col">
               <div>
