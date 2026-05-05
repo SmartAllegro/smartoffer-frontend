@@ -21,7 +21,6 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-
 import type { RFQRequest, Supplier } from "@/shared/types/rfq";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -818,20 +817,11 @@ const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
                   return (
                     <div
                       key={item.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openDetail(item)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openDetail(item);
-                        }
-                      }}
                       className={cn(
-                        "relative cursor-pointer overflow-hidden rounded-xl border p-4 transition",
-                        rowClass(itemOutcome)
+                         "relative overflow-hidden rounded-xl border p-4 transition select-text",
+                         rowClass(itemOutcome)
                       )}
-                    >
+                     >
                       <div
                         className={cn(
                           "absolute left-0 top-0 h-full w-1.5",
@@ -839,7 +829,7 @@ const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
                         )}
                       />
 
-                      <div className="grid grid-cols-1 gap-3 pl-3 xl:grid-cols-[minmax(0,1.9fr)_86px_86px_96px_82px_160px_175px] xl:items-center">
+                      <div className="grid grid-cols-1 gap-3 pl-3 xl:grid-cols-[minmax(0,1.9fr)_56px_86px_86px_96px_82px_160px_175px] xl:items-center">
                         <div className="min-w-0">
                           <div className="truncate text-base font-semibold text-white">
                             {displayTitle(item)}
@@ -850,6 +840,36 @@ const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
                             {displaySubtitle(item)}
                           </div>
                         </div>
+
+<div className="flex items-center justify-center">
+  <button
+    type="button"
+    onClick={(event) => {
+      event.stopPropagation();
+      openDetail(item);
+    }}
+    className="
+      inline-flex h-11 w-11 items-center justify-center rounded-xl
+      border border-blue-500/28
+      bg-blue-500/20
+      text-blue-300
+      transition
+      hover:border-[#ffbf00]
+      hover:bg-[#ffbf00]
+      hover:text-[#2b2100]
+      active:border-[#ffbf00]
+      active:bg-[#ffbf00]
+      active:text-[#2b2100]
+      focus:outline-none
+      focus-visible:ring-2
+      focus-visible:ring-[#ffbf00]/45
+    "
+    title="Открыть запрос"
+    aria-label="Открыть запрос"
+  >
+    <FileText className="h-5 w-5" />
+  </button>
+</div>
 
 <div className="flex items-center gap-2 text-sm text-white/55">
   <Users className="h-4 w-4 text-white/70" />
