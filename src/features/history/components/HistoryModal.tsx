@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState, useCallback } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,34 +8,166 @@ import {
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Button } from "@/shared/ui/button";
-import { Search, RefreshCw, Mail } from "lucide-react";
+import { Checkbox } from "@/shared/ui/checkbox";
+import {
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  FileText,
+  Mail,
+  RefreshCw,
+  Search,
+  Send,
+  Users,
+  XCircle,
+} from "lucide-react";
+
 import type { RFQRequest, Supplier } from "@/shared/types/rfq";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useToast } from "@/shared/hooks/use-toast";
+import { cn } from "@/shared/utils/utils";
 
 import { SupplierTable } from "@/features/search/components/SupplierTable";
-import { getHistoryDetail, setQuoteReceived } from "@/api/history";
-import { apiFetch } from "@/api/client";
+import {
+  getHistoryDetail,
+  getHistoryStats,
+  listHistory,
+  setJobDealDone,
+  setQuoteReceived,
+  type HistoryListItem,
+  type HistoryOutcome,
+  type HistoryPeriod,
+  type HistoryStatsResponse,
+} from "@/api/history";
 
 interface HistoryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-
-  // совместимость со старым вызовом — больше не используем
   history?: RFQRequest[];
 }
 
-function formatDateTime(date: Date): string {
+const PAGE_LIMIT = 50;
+
+const PERIODS: Array<{ value: HistoryPeriod; label: string }> = [
+  { value: "7d", label: "7 дней" },
+  { value: "30d", label: "30 дней" },
+  { value: "90d", label: "90 дней" },
+  { value: "all", label: "Всё время" },
+];
+
+const OUTCOMES: Array<{ value: HistoryOutcome; label: string }> = [
+  { value: "all", label: "Все" },
+  { value: "deal", label: "Сделка" },
+  { value: "sent", label: "Отправлено" },
+  { value: "not_sent", label: "Без отправки" },
+];
+
+function formatDateTime(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
   return format(date, "d MMMM yyyy, HH:mm", { locale: ru });
 }
 
-/**
- * /history/{job_id} возвращает results[].email_statuses:
- * - если есть failed -> error
- * - если есть sent   -> sent
- * - иначе            -> found
- */
+function formatUpdatedAt(): string {
+  return format(new Date(), "сегодня, HH:mm", { locale: ru });
+}
+
+function displayTitle(item: HistoryListItem): string {
+  const subject = (item.email_subject || "").trim();
+  if (subject) return subject;
+
+  const query = (item.query || "").trim();
+  if (query.startsWith("Запрос КП")) return query;
+
+  return `Запрос КП — ${query || "без темы"}`;
+}
+
+function displaySubtitle(item: HistoryListItem): string {
+  return item.query || "—";
+}
+
+function normalizeNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getQuotesReceivedCount(item: HistoryListItem): number {
+  return normalizeNumber(item.quotes_received_count);
+}
+
+function pluralizeRu(count: number, forms: [string, string, string]) {
+  const abs = Math.abs(count) % 100;
+  const last = abs % 10;
+
+  if (abs > 10 && abs < 20) return forms[2];
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+
+  return forms[2];
+}
+
+function conversionLabel(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(1)}%`;
+}
+
+function outcomeLabel(outcome: string): string {
+  if (outcome === "deal") return "Сделка";
+  if (outcome === "sent") return "Отправлено";
+  return "Без отправки";
+}
+
+function outcomeBadgeClass(outcome: string) {
+  if (outcome === "deal") {
+    return "border-emerald-500/28 bg-[rgba(6,95,70,0.22)] text-emerald-300";
+  }
+
+  if (outcome === "sent") {
+    return "border-[#ffbf00]/28 bg-[rgba(146,99,0,0.22)] text-[#ffbf00]";
+  }
+
+  return "border-red-500/28 bg-[rgba(127,29,29,0.22)] text-red-300";
+}
+
+function rowClass(outcome: string) {
+  if (outcome === "deal") {
+    return [
+      "border-emerald-500/28",
+      "bg-[linear-gradient(90deg,rgba(6,95,70,0.34),rgba(17,24,39,0.96)_24%,rgba(17,24,39,1))]",
+      "hover:bg-[linear-gradient(90deg,rgba(6,95,70,0.40),rgba(17,24,39,0.98)_24%,rgba(17,24,39,1))]",
+    ].join(" ");
+  }
+
+  if (outcome === "sent") {
+    return [
+      "border-[#ffbf00]/28",
+      "bg-[linear-gradient(90deg,rgba(146,99,0,0.34),rgba(17,24,39,0.96)_24%,rgba(17,24,39,1))]",
+      "hover:bg-[linear-gradient(90deg,rgba(146,99,0,0.40),rgba(17,24,39,0.98)_24%,rgba(17,24,39,1))]",
+    ].join(" ");
+  }
+
+  return [
+    "border-red-500/28",
+    "bg-[linear-gradient(90deg,rgba(127,29,29,0.36),rgba(17,24,39,0.96)_24%,rgba(17,24,39,1))]",
+    "hover:bg-[linear-gradient(90deg,rgba(127,29,29,0.42),rgba(17,24,39,0.98)_24%,rgba(17,24,39,1))]",
+  ].join(" ");
+}
+
+function sideAccentClass(outcome: string) {
+  if (outcome === "deal") return "bg-emerald-500";
+  if (outcome === "sent") return "bg-[#ffbf00]";
+  return "bg-red-500";
+}
+
+function getFilterCount(stats: HistoryStatsResponse | null, outcome: HistoryOutcome) {
+  if (!stats) return 0;
+
+  if (outcome === "all") return normalizeNumber(stats.total_jobs);
+  if (outcome === "deal") return normalizeNumber(stats.deal_jobs);
+  if (outcome === "sent") return normalizeNumber(stats.sent_jobs);
+  return normalizeNumber(stats.not_sent_jobs);
+}
+
 function deriveSupplierStatus(r: any): {
   status: Supplier["status"];
   error_message?: string;
@@ -58,102 +191,143 @@ function deriveSupplierStatus(r: any): {
   return { status: "found" };
 }
 
-/**
- * Достаём backend job_id из RFQRequest.
- * Поддерживаем несколько вариантов имени поля + fallback на id вида "job-123".
- */
-function getBackendJobId(request: RFQRequest): number | null {
-  const anyReq: any = request as any;
+function StatCard({
+  icon,
+  value,
+  title,
+  hint,
+  tone,
+}: {
+  icon: ReactNode;
+  value: string | number;
+  title: string;
+  hint: string;
+  tone: "blue" | "yellow" | "red" | "green" | "violet";
+}) {
+  const styles =
+    tone === "blue"
+      ? {
+          card:
+            "border-blue-500/28 bg-[linear-gradient(180deg,rgba(30,64,175,0.32),rgba(17,24,39,0.92))]",
+          icon: "bg-blue-500/20 text-blue-300",
+        }
+      : tone === "yellow"
+        ? {
+            card:
+              "border-[#ffbf00]/28 bg-[linear-gradient(180deg,rgba(146,99,0,0.34),rgba(17,24,39,0.92))]",
+            icon: "bg-[rgba(146,99,0,0.38)] text-[#ffbf00]",
+          }
+        : tone === "red"
+          ? {
+              card:
+                "border-red-500/28 bg-[linear-gradient(180deg,rgba(127,29,29,0.36),rgba(17,24,39,0.92))]",
+              icon: "bg-red-500/20 text-red-300",
+            }
+          : tone === "green"
+            ? {
+                card:
+                  "border-emerald-500/28 bg-[linear-gradient(180deg,rgba(6,95,70,0.36),rgba(17,24,39,0.92))]",
+                icon: "bg-emerald-500/20 text-emerald-300",
+              }
+            : {
+                card:
+                  "border-violet-500/28 bg-[linear-gradient(180deg,rgba(88,28,135,0.36),rgba(17,24,39,0.92))]",
+                icon: "bg-violet-500/20 text-violet-300",
+              };
 
-  const candidates = [
-    anyReq.backend_job_id,
-    anyReq.backend_jobId,
-    anyReq.job_id,
-    anyReq.jobId,
-  ];
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-4 transition",
+        "shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
+        styles.card
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+            styles.icon
+          )}
+        >
+          {icon}
+        </div>
 
-  for (const c of candidates) {
-    if (typeof c === "number" && !Number.isNaN(c) && c > 0) return c;
-    if (typeof c === "string" && c.trim() && !Number.isNaN(Number(c)))
-      return Number(c);
-  }
-
-  if (typeof request.id === "string" && request.id.startsWith("job-")) {
-    const n = Number(request.id.replace("job-", ""));
-    if (!Number.isNaN(n) && n > 0) return n;
-  }
-
-  return null;
+        <div className="min-w-0">
+          <div className="text-[28px] font-semibold leading-none text-white">
+            {value}
+          </div>
+          <div className="mt-2 text-sm font-semibold text-white">
+            {title}
+          </div>
+          <div className="mt-3 text-xs text-white/55">
+            {hint}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
-
-/**
- * Тип ответа GET /history?limit=&offset=
- */
-type BackendHistoryItem = {
-  id: number;
-  query: string;
-  provider?: string;
-  lang?: string;
-  time_ms?: number;
-  created_at: string;
-  results_count?: number;
-  emails_sent?: number;
-  emails_failed?: number;
-
-  // тема последнего отправленного письма (если есть)
-  email_subject?: string | null;
-};
-
-type BackendHistoryList = {
-  items: BackendHistoryItem[];
-};
-
-const PAGE_LIMIT = 50;
 
 export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
   const { toast } = useToast();
 
-  // список истории (пагинация)
-  const [items, setItems] = useState<RFQRequest[]>([]);
+  const [items, setItems] = useState<HistoryListItem[]>([]);
+  const [total, setTotal] = useState(0);
+
   const [loadingFirst, setLoadingFirst] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
 
+  const [period, setPeriod] = useState<HistoryPeriod>("30d");
+  const [outcome, setOutcome] = useState<HistoryOutcome>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // detail modal
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailTitle, setDetailTitle] = useState<string>("Результаты запроса");
-  const [detailSuppliers, setDetailSuppliers] = useState<Supplier[]>([]);
-  const [detailJobId, setDetailJobId] = useState<number | null>(null);
+  const [stats, setStats] = useState<HistoryStatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<string>("");
 
-  // письмо
+  const [detailOpen, setDetailOpen] = useState(false);
+const [detailLoading, setDetailLoading] = useState(false);
+const [detailTitle, setDetailTitle] = useState<string>("Результаты запроса");
+const [detailSuppliers, setDetailSuppliers] = useState<Supplier[]>([]);
+const [detailJobId, setDetailJobId] = useState<number | null>(null);
+
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState<string>("");
   const [emailBody, setEmailBody] = useState<string>("");
 
-  const mapBackendToRFQ = useCallback((it: BackendHistoryItem): RFQRequest => {
-    const createdAt = it.created_at ? new Date(it.created_at) : new Date();
+  const selectedFilterCount = useMemo(() => {
+    if (outcome === "all") return total || getFilterCount(stats, "all");
+    return getFilterCount(stats, outcome);
+  }, [outcome, stats, total]);
 
-    const query = (it.query || "").trim();
-    const lastSubject = (it.email_subject || "").trim();
+const totalJobs = normalizeNumber(stats?.total_jobs);
+const sentJobs = normalizeNumber(stats?.sent_jobs);
+const notSentJobs = normalizeNumber(stats?.not_sent_jobs);
+const dealJobs = normalizeNumber(stats?.deal_jobs);
+const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
 
-    const req: RFQRequest = {
-      id: `job-${it.id}`,
-      equipment_name: (lastSubject || query) || "",
-      email_subject: `Запрос КП — ${query}`.trim(),
-      rfq_text: "",
-      status: "search_completed",
-      created_at: createdAt,
-      sent_at: undefined,
-      recipients_count: undefined,
-      ...({ backend_job_id: it.id } as any),
-    };
+  const canShowEmail = (emailSubject || "").trim() || (emailBody || "").trim();
 
-    return req;
-  }, []);
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true);
+
+    try {
+      const result = await getHistoryStats(period);
+      setStats(result);
+      setUpdatedAt(formatUpdatedAt());
+    } catch (e) {
+      toast({
+        title: "Не удалось загрузить статистику",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [period, toast]);
 
   const loadFirstPage = useCallback(async () => {
     setLoadingFirst(true);
@@ -162,15 +336,17 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
     setHasMore(true);
 
     try {
-      const res = await apiFetch<BackendHistoryList>(
-        `/history?limit=${PAGE_LIMIT}&offset=0`,
-        { method: "GET" }
-      );
+      const res = await listHistory({
+        limit: PAGE_LIMIT,
+        offset: 0,
+        outcome,
+        q: searchQuery.trim() || undefined,
+      });
 
       const page = Array.isArray(res?.items) ? res.items : [];
-      const mapped = page.map(mapBackendToRFQ);
 
-      setItems(mapped);
+      setItems(page);
+      setTotal(normalizeNumber(res?.total));
       setOffset(page.length);
       setHasMore(page.length === PAGE_LIMIT);
     } catch (e) {
@@ -183,23 +359,29 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
     } finally {
       setLoadingFirst(false);
     }
-  }, [mapBackendToRFQ, toast]);
+  }, [outcome, searchQuery, toast]);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([loadFirstPage(), loadStats()]);
+  }, [loadFirstPage, loadStats]);
 
   const loadMorePage = useCallback(async () => {
     if (!hasMore || loadingMore || loadingFirst) return;
 
     setLoadingMore(true);
     try {
-      const res = await apiFetch<BackendHistoryList>(
-        `/history?limit=${PAGE_LIMIT}&offset=${offset}`,
-        { method: "GET" }
-      );
+      const res = await listHistory({
+        limit: PAGE_LIMIT,
+        offset,
+        outcome,
+        q: searchQuery.trim() || undefined,
+      });
 
       const page = Array.isArray(res?.items) ? res.items : [];
-      const mapped = page.map(mapBackendToRFQ);
 
-      setItems((prev) => [...prev, ...mapped]);
+      setItems((prev) => [...prev, ...page]);
       setOffset((prev) => prev + page.length);
+      setTotal(normalizeNumber(res?.total));
       setHasMore(page.length === PAGE_LIMIT);
     } catch (e) {
       toast({
@@ -211,47 +393,32 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, loadingMore, loadingFirst, offset, mapBackendToRFQ, toast]);
+  }, [hasMore, loadingMore, loadingFirst, offset, outcome, searchQuery, toast]);
 
   useEffect(() => {
     if (!open) return;
-    loadFirstPage().catch(() => {});
+
+    const t = window.setTimeout(() => {
+      loadFirstPage().catch(() => {});
+    }, 250);
+
+    return () => window.clearTimeout(t);
   }, [open, loadFirstPage]);
 
-  const filteredHistory = useMemo(() => {
-    const sorted = [...items].sort(
-      (a, b) => b.created_at.getTime() - a.created_at.getTime()
-    );
+  useEffect(() => {
+    if (!open) return;
+    loadStats().catch(() => {});
+  }, [open, loadStats]);
 
-    if (!searchQuery.trim()) return sorted;
+  async function openDetail(item: HistoryListItem) {
+  const jid = item.id;
 
-    const q = searchQuery.toLowerCase();
-    return sorted.filter(
-      (r) =>
-        (r.email_subject || "").toLowerCase().includes(q) ||
-        (r.equipment_name || "").toLowerCase().includes(q)
-    );
-  }, [items, searchQuery]);
-
-  async function openDetail(request: RFQRequest) {
-    const jid = getBackendJobId(request);
-
-    if (!jid) {
-      toast({
-        title: "Не удалось открыть запрос",
-        description: "Не найден job_id в истории.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setDetailJobId(jid);
-    setDetailOpen(true);
-    setDetailLoading(true);
+  setDetailJobId(jid);
+  setDetailOpen(true);
+  setDetailLoading(true);
     setDetailSuppliers([]);
-    setDetailTitle(request.email_subject || "Результаты запроса");
+    setDetailTitle(displayTitle(item));
 
-    // reset письмо
     setEmailSubject("");
     setEmailBody("");
 
@@ -259,12 +426,11 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
       const detail = await getHistoryDetail(jid);
 
       const subj =
-        (detail as any)?.job?.email_subject ??
-        request.equipment_name ??
-        request.email_subject ??
-        `Запрос КП — ${request.equipment_name || ""}`.trim();
+        detail?.job?.email_subject ??
+        item.email_subject ??
+        `Запрос КП — ${item.query || ""}`.trim();
 
-      const body = (detail as any)?.job?.email_body ?? request.rfq_text ?? "";
+      const body = detail?.job?.email_body ?? "";
 
       setEmailSubject(typeof subj === "string" ? subj : "");
       setEmailBody(typeof body === "string" ? body : "");
@@ -296,8 +462,6 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
           backend_result_id: typeof r?.id === "number" ? r.id : undefined,
           error_message: derived.error_message,
           error_details: derived.error_details,
-
-          // NEW: КП
           quote_received: !!r?.quote_received,
           quote_received_at: r?.quote_received_at ? new Date(r.quote_received_at) : null,
         } as Supplier;
@@ -316,154 +480,511 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
     }
   }
 
+  async function handleToggleDeal(item: HistoryListItem, next: boolean) {
+    const previousItems = items;
+
+    setItems((current) =>
+      current.map((x) =>
+        x.id === item.id
+          ? {
+              ...x,
+              deal_done: next,
+              deal_done_at: next ? new Date().toISOString() : null,
+              history_outcome: next
+                ? "deal"
+                : normalizeNumber(x.emails_sent) > 0
+                  ? "sent"
+                  : "not_sent",
+            }
+          : x
+      )
+    );
+
+    try {
+      const res = await setJobDealDone(item.id, next);
+
+      setItems((current) =>
+        current.map((x) =>
+          x.id === item.id
+            ? {
+                ...x,
+                deal_done: res.deal_done,
+                deal_done_at: res.deal_done_at,
+                history_outcome: res.history_outcome,
+              }
+            : x
+        )
+      );
+
+      await loadStats();
+    } catch (e) {
+      setItems(previousItems);
+      toast({
+        title: "Не удалось сохранить отметку сделки",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  }
+
+  const handleToggleQuote = useCallback(
+  async (supplierId: string, backendResultId: number, next: boolean) => {
+    const prevSuppliers = detailSuppliers;
+    const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
+    const wasReceived = Boolean(prevSupplier?.quote_received);
+
+    const delta = wasReceived === next ? 0 : next ? 1 : -1;
+
+    setDetailSuppliers((cur) =>
+      cur.map((s) =>
+        s.id === supplierId
+          ? {
+              ...s,
+              quote_received: next,
+              quote_received_at: next ? new Date() : null,
+            }
+          : s
+      )
+    );
+
+    try {
+      await setQuoteReceived(backendResultId, next);
+
+      if (detailJobId && delta !== 0) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === detailJobId
+              ? {
+                  ...item,
+                  quotes_received_count: Math.max(
+                    0,
+                    normalizeNumber(item.quotes_received_count) + delta
+                  ),
+                }
+              : item
+          )
+        );
+      }
+    } catch (e) {
+      setDetailSuppliers(prevSuppliers);
+
+      toast({
+        title: "Не удалось сохранить отметку КП",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  },
+  [detailSuppliers, detailJobId, toast]
+);
+
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget;
       const threshold = 180;
       const atBottom =
         el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-      if (atBottom) loadMorePage().catch(() => {});
+
+      if (atBottom) {
+        loadMorePage().catch(() => {});
+      }
     },
     [loadMorePage]
   );
 
-  const canShowEmail = (emailSubject || "").trim() || (emailBody || "").trim();
-
-  // NEW: обработчик чекбокса "КП"
-  const handleToggleQuote = useCallback(
-    async (supplierId: string, backendResultId: number, next: boolean) => {
-      // optimistic update
-      const prev = detailSuppliers;
-
-      setDetailSuppliers((cur) =>
-        cur.map((s) =>
-          s.id === supplierId
-            ? {
-                ...s,
-                quote_received: next,
-                quote_received_at: next ? new Date() : null,
-              }
-            : s
-        )
-      );
-
-      try {
-        await setQuoteReceived(backendResultId, next);
-      } catch (e) {
-        // rollback
-        setDetailSuppliers(prev);
-        toast({
-          title: "Не удалось сохранить отметку КП",
-          description: e instanceof Error ? e.message : "Ошибка",
-          variant: "destructive",
-        });
-      }
-    },
-    [detailSuppliers, toast]
-  );
-
   return (
     <>
-      {/* LIST MODAL */}
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col [&_[data-radix-dialog-close]]:hidden">
-          <DialogHeader>
-            <div className="flex items-center justify-between gap-3">
-              <DialogTitle className="text-xl">История запросов</DialogTitle>
+        <DialogContent
+  className="
+  w-[calc(100vw-24px)]
+  max-w-7xl
+  max-h-[90vh]
+  flex
+  flex-col
+  overflow-hidden
+  rounded-xl
+  border
+  border-white/10
+  bg-card
+  p-0
+  text-white
+  shadow-[0_24px_80px_rgba(0,0,0,0.55)]
+"
+>
+          <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-background/45 px-6 py-5">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-semibold text-white">
+                История запросов
+              </DialogTitle>
+            </DialogHeader>
 
+            <div className="flex items-center gap-3">
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => loadFirstPage()}
-                disabled={loadingFirst}
-                className="shrink-0 mr-5"
-                title="Обновить"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 mr-2 ${
-                    loadingFirst ? "animate-spin" : ""
-                  }`}
-                />
-                Обновить
-              </Button>
+  variant="outline"
+  size="sm"
+  onClick={() => refreshAll()}
+  disabled={loadingFirst || statsLoading}
+  className="
+    mr-10 h-10
+    border-[#2f3a4d]
+    bg-[#151f2d]
+    text-white
+    hover:border-[#ffbf00]
+    hover:bg-[#ffbf00]
+    hover:text-[#2b2100]
+    active:border-[#ffbf00]
+    active:bg-[#ffbf00]
+    active:text-[#2b2100]
+    disabled:opacity-50
+  "
+  title="Обновить"
+>
+  <RefreshCw
+    className={cn(
+      "mr-2 h-4 w-4",
+      loadingFirst || statsLoading ? "animate-spin" : ""
+    )}
+  />
+  Обновить
+</Button>
             </div>
-          </DialogHeader>
-
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Поиск по теме"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-muted/50"
-            />
           </div>
 
-          <div className="flex-1 overflow-auto -mx-6 px-6" onScroll={handleScroll}>
-            <div className="space-y-3 pb-2">
-              {loadingFirst && items.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">Загрузка…</p>
-              ) : filteredHistory.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">
-                  {searchQuery ? "Ничего не найдено" : "История запросов пуста"}
-                </p>
-              ) : (
-                filteredHistory.map((request) => {
-                  const displayDate = request.sent_at || request.created_at;
+          <div className="flex-1 overflow-auto px-6 py-5" onScroll={handleScroll}>
+            <section className="rounded-2xl border border-[#2d4059] bg-[#111827] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-semibold text-white">
+                    Моя статистика
+                  </h3>
+                  <BarChart3 className="h-4 w-4 text-white/45" />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => setPeriod(p.value)}
+                      className={cn(
+                        "h-9 rounded-full border px-4 text-sm transition",
+                        period === p.value
+  ? "border-[#ffbf00] bg-[#ffbf00]/10 text-[#ffbf00]"
+  : "border-white/10 bg-background/45 text-white/70 hover:bg-white/10 hover:text-white"
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+
+                  <div className="ml-0 flex items-center gap-2 text-sm text-white/55 lg:ml-4">
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {updatedAt ? `Обновлено: ${updatedAt}` : "Обновление..."}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+  <StatCard
+    icon={<FileText className="h-5 w-5" />}
+    value={statsLoading ? "…" : totalJobs}
+    title={pluralizeRu(totalJobs, ["Запрос", "Запроса", "Запросов"])}
+    hint="Всего запросов"
+    tone="blue"
+  />
+
+  <StatCard
+    icon={<Send className="h-5 w-5" />}
+    value={statsLoading ? "…" : sentJobs}
+    title="Отправлено"
+    hint="С отправкой писем"
+    tone="yellow"
+  />
+
+  <StatCard
+    icon={<XCircle className="h-5 w-5" />}
+    value={statsLoading ? "…" : notSentJobs}
+    title="Без отправки"
+    hint="Писем не отправлено"
+    tone="red"
+  />
+
+  <StatCard
+    icon={<CheckCircle2 className="h-5 w-5" />}
+    value={statsLoading ? "…" : dealJobs}
+    title={pluralizeRu(dealJobs, ["Сделка", "Сделки", "Сделок"])}
+    hint="Отмечено пользователем"
+    tone="green"
+  />
+
+  <StatCard
+    icon={<Mail className="h-5 w-5" />}
+    value={statsLoading ? "…" : emailsSentTotal}
+    title="Писем отправлено"
+    hint="Всего писем поставщикам"
+    tone="violet"
+  />
+</div>
+
+              <div className="mt-5 flex flex-col gap-2 rounded-xl border border-[#263142] bg-[#121a27] px-4 py-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-wrap items-center gap-3">
+                  <BarChart3 className="h-5 w-5 text-emerald-300" />
+                  <div className="text-sm font-semibold text-white">
+                    Конверсия отправка → сделка
+                  </div>
+                  <div className="text-xl font-semibold text-emerald-300">
+                    {statsLoading
+                      ? "…"
+                      : conversionLabel(stats?.deal_conversion_from_sent)}
+                  </div>
+                  <div className="text-sm text-white/55">
+                    {normalizeNumber(stats?.deal_jobs)} сделок из{" "}
+                    {normalizeNumber(stats?.sent_jobs)} запросов с отправкой
+                  </div>
+                </div>
+
+              </div>
+            </section>
+
+            <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap gap-2">
+                {OUTCOMES.map((item) => {
+                  const active = outcome === item.value;
+                  const count =
+                    item.value === "all"
+                      ? total || getFilterCount(stats, item.value)
+                      : getFilterCount(stats, item.value);
 
                   return (
                     <button
-                      key={request.id}
+                      key={item.value}
                       type="button"
-                      onClick={() => openDetail(request)}
-                      className="w-full text-left bg-muted/30 border border-border rounded-lg p-4 space-y-2 hover:bg-muted/40 transition-colors"
+                      onClick={() => setOutcome(item.value)}
+                      className={cn(
+                        "inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm transition",
+                        active
+  ? "border-[#ffbf00] bg-[#ffbf00]/10 text-[#ffbf00]"
+  : "border-white/10 bg-background/45 text-white/70 hover:bg-white/10 hover:text-white"
+                      )}
                     >
-                      <div className="text-xs text-muted-foreground">
-                        {formatDateTime(displayDate)}
-                      </div>
+                      <span>{item.label}</span>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-xs font-semibold",
+                          item.value === "deal"
+                            ? "bg-emerald-500/22 text-emerald-300"
+                            : item.value === "sent"
+                              ? "bg-[#ffbf00]/22 text-[#ffbf00]"
+                              : item.value === "not_sent"
+                                ? "bg-red-500/22 text-red-300"
+                                : "bg-blue-500/22 text-blue-300"
+                        )}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-foreground truncate">
-                            {request.email_subject}
-                          </h4>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {request.equipment_name}
-                          </p>
+              <div className="relative w-full lg:w-[420px]">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                <Input
+                  placeholder="Поиск по теме запроса..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-10 border-white/10 bg-background/45 pl-9 text-white placeholder:text-white/35 focus-visible:ring-primary/30"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3 pb-4">
+              {loadingFirst && items.length === 0 ? (
+                <div className="rounded-xl border border-[#2f3a4d] bg-[#151f2d] py-10 text-center text-white/55">
+                  Загрузка истории…
+                </div>
+              ) : items.length === 0 ? (
+                <div className="rounded-xl border border-[#2f3a4d] bg-[#151f2d] py-10 text-center text-white/55">
+                  {searchQuery || outcome !== "all"
+                    ? "По выбранному фильтру ничего не найдено"
+                    : "История запросов пуста"}
+                </div>
+              ) : (
+                items.map((item) => {
+                  const itemOutcome = item.history_outcome || "not_sent";
+                  const dealChecked = !!item.deal_done;
+
+                  return (
+                    <div
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openDetail(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openDetail(item);
+                        }
+                      }}
+                      className={cn(
+                        "relative cursor-pointer overflow-hidden rounded-xl border p-4 transition",
+                        rowClass(itemOutcome)
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "absolute left-0 top-0 h-full w-1.5",
+                          sideAccentClass(itemOutcome)
+                        )}
+                      />
+
+                      <div className="grid grid-cols-1 gap-3 pl-3 xl:grid-cols-[minmax(0,1.9fr)_86px_86px_96px_82px_160px_175px] xl:items-center">
+                        <div className="min-w-0">
+                          <div className="truncate text-base font-semibold text-white">
+                            {displayTitle(item)}
+                          </div>
+                          <div className="mt-1 truncate text-sm text-white/55">
+                            {formatDateTime(item.created_at)}{" "}
+                            <span className="mx-2 text-white/25">•</span>
+                            {displaySubtitle(item)}
+                          </div>
+                        </div>
+
+<div className="flex items-center gap-2 text-sm text-white/55">
+  <Users className="h-4 w-4 text-white/70" />
+  <div>
+    <div className="font-semibold text-white">
+      {normalizeNumber(item.results_count)}
+    </div>
+    <div className="text-xs">результатов</div>
+  </div>
+</div>
+
+                        <div className="flex items-center gap-2 text-sm text-white/55">
+                          <Mail className="h-4 w-4" />
+                          <div>
+                            <div className="font-semibold text-white">
+                              {normalizeNumber(item.emails_sent)}
+                            </div>
+                            <div className="text-xs">отправлено</div>
+                          </div>
+                        </div>
+
+<div className="flex items-center gap-2 text-sm text-white/55">
+  <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+  <div>
+    <div className="font-semibold text-white">
+      {getQuotesReceivedCount(item)}
+    </div>
+    <div className="text-xs">КП получено</div>
+  </div>
+</div>
+
+                        <div className="flex items-center gap-2 text-sm text-white/55">
+                          <AlertTriangle className="h-4 w-4" />
+                          <div>
+                            <div className="font-semibold text-white">
+                              {normalizeNumber(item.emails_failed)}
+                            </div>
+                            <div className="text-xs">
+                              {normalizeNumber(item.emails_failed) === 1
+                                ? "ошибка"
+                                : "ошибок"}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span
+  className={cn(
+    "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold",
+    outcomeBadgeClass(itemOutcome)
+  )}
+>
+  {outcomeLabel(itemOutcome)}
+
+  {itemOutcome === "deal" ? (
+    <CheckCircle2 className="h-4 w-4" />
+  ) : itemOutcome === "sent" ? (
+    <Send className="h-4 w-4" />
+  ) : (
+    <XCircle className="h-4 w-4" />
+  )}
+</span>
+                        </div>
+
+                        <div
+                          className="flex items-center gap-3"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Checkbox
+                            checked={dealChecked}
+                            onCheckedChange={(checked) =>
+                              handleToggleDeal(item, checked === true)
+                            }
+                            className="
+                              h-5 w-5
+                              border-[#4a5568]
+                              data-[state=checked]:border-[#ffbf00]
+                              data-[state=checked]:bg-[#ffbf00]
+                              data-[state=checked]:text-[#2b2100]
+                            "
+                            aria-label="Сделка состоялась"
+                          />
+                          <span className="text-sm text-white/70">
+                            Сделка состоялась
+                          </span>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
 
               {loadingMore && (
-                <div className="py-4 text-center text-xs text-muted-foreground">
+                <div className="py-4 text-center text-xs text-white/45">
                   Загрузка…
                 </div>
               )}
 
-              {!loadingFirst && !loadingMore && hasMore && filteredHistory.length > 0 && (
-                <div className="py-3 text-center text-xs text-muted-foreground">
+              {!loadingFirst && !loadingMore && hasMore && items.length > 0 && (
+                <div className="py-3 text-center text-xs text-white/45">
                   Прокрутите вниз, чтобы загрузить ещё
+                </div>
+              )}
+
+              {!loadingFirst && !loadingMore && !hasMore && items.length > 0 && (
+                <div className="py-3 text-center text-xs text-white/45">
+                  Показано {items.length} из {selectedFilterCount}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="pt-4 border-t border-border">
+          <div className="border-t border-white/10 bg-background/45 px-6 py-4">
             <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => onOpenChange(false)}
-            >
-              Закрыть
-            </Button>
+  variant="outline"
+  className="
+    mx-auto flex w-full max-w-sm
+    border-[#2f3a4d]
+    bg-[#151f2d]
+    text-white
+    hover:border-[#ffbf00]
+    hover:bg-[#ffbf00]
+    hover:text-[#2b2100]
+    active:border-[#ffbf00]
+    active:bg-[#ffbf00]
+    active:text-[#2b2100]
+  "
+  onClick={() => onOpenChange(false)}
+>
+  Закрыть
+</Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* DETAIL MODAL */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col [&_[data-radix-dialog-close]]:hidden">
           <DialogHeader>
@@ -506,7 +1027,6 @@ export function HistoryModal({ open, onOpenChange }: HistoryModalProps) {
         </DialogContent>
       </Dialog>
 
-      {/* EMAIL PREVIEW MODAL */}
       <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
         <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col [&_[data-radix-dialog-close]]:hidden">
           <DialogHeader>

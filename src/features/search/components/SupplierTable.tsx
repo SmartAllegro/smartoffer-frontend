@@ -326,7 +326,7 @@ export function SupplierTable({
   const toggleAllDisabled =
     disabled || readOnly || selectableSuppliers.length === 0;
 
-  const showQuoteColumn = true; // всегда показываем колонку "КП"
+  const showQuoteColumn = true; // всегда показываем колонку "КП получено"
   const canToggleQuote = typeof onToggleQuote === "function" && !disabled;
 
   return (
@@ -370,7 +370,7 @@ export function SupplierTable({
 
               {showQuoteColumn && (
                 <TableHead className="text-muted-foreground font-normal w-16 text-center">
-                  КП
+                  КП получено
                 </TableHead>
               )}
 
