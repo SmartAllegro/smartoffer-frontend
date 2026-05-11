@@ -3,7 +3,7 @@ import { StatusBadge } from '@/features/search/components/StatusBadge';
 import { InputBlock } from '@/features/search/components/InputBlock';
 import { SupplierTable } from '@/features/search/components/SupplierTable';
 import { Footer } from '@/features/search/components/Footer';
-import { HistoryModal } from "@/features/history/components/HistoryModal";
+import { useNavigate } from "react-router-dom";
 import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
 import { BillingCounter } from '@/features/search/components/BillingCounter';
 import { Button } from '@/shared/ui/button';
@@ -44,11 +44,11 @@ export default function Index() {
 
   const [searchJobId, setSearchJobId] = useState<number | null>(null);
 
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { toast } = useToast();
-  const { history, addRequest, updateRequest } = useRequestHistory();
+  const { addRequest, updateRequest } = useRequestHistory();
 
   const [authOpen, setAuthOpen] = useState(false);
   const [me, setMe] = useState<UserMe | null>(null);
@@ -80,12 +80,7 @@ useEffect(() => {
   }
 }, [canUseInternationalSearch, searchMode]);
 
-  const filteredHistory = useMemo(() => {
-    return history.filter(
-      (r) => !r.organization_id || r.organization_id === CURRENT_ORGANIZATION_ID
-    );
-  }, [history]);
-
+  
   useEffect(() => {
     if (equipmentName.trim()) {
       setEmailSubject(`Запрос КП — ${equipmentName}`);
@@ -430,13 +425,13 @@ useEffect(() => {
                     />
 
                     <Button
-                      variant="outline"
-                      onClick={() => setHistoryOpen(true)}
-                      className="w-[132px] shrink-0 justify-center"
-                    >
-                      <History className="w-4 h-4 mr-2" />
-                      История
-                    </Button>
+  variant="outline"
+  onClick={() => navigate("/history")}
+  className="w-[132px] shrink-0 justify-center"
+>
+  <History className="w-4 h-4 mr-2" />
+  История
+</Button>
                   </div>
                 </div>
 
@@ -472,13 +467,13 @@ useEffect(() => {
                   />
 
                   <Button
-                    variant="outline"
-                    onClick={() => setHistoryOpen(true)}
-                    className="w-[132px] shrink-0 justify-center"
-                  >
-                    <History className="w-4 h-4 mr-2" />
-                    История
-                  </Button>
+  variant="outline"
+  onClick={() => navigate("/history")}
+  className="w-[132px] shrink-0 justify-center"
+>
+  <History className="w-4 h-4 mr-2" />
+  История
+</Button>
                 </div>
               </div>
             </div>
@@ -599,12 +594,7 @@ useEffect(() => {
 
       <Footer />
 
-      <HistoryModal
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        history={filteredHistory}
-      />
-
+      
       <SettingsModal
         open={settingsOpen}
         onOpenChange={handleSettingsOpenChange}

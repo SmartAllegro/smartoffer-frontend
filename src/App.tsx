@@ -18,7 +18,7 @@ import Docs from "./pages/Docs";
 import DataRetentionPolicy from "./pages/DataRetentionPolicy";
 import PersonalDataConsent from "./pages/PersonalDataConsent";
 import PaymentResult from "./pages/PaymentResult";
-
+import HistoryPage from "./pages/HistoryPage";
 import { trackPageView } from "@/api/tracking";
 
 const queryClient = new QueryClient();
@@ -49,6 +49,7 @@ const App = () => (
 
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/history" element={<HistoryPage />} />
           <Route path="/email-verification" element={<EmailVerification />} />
           <Route path="/about" element={<About />} />
           <Route path="/reset-password" element={<ResetPassword />} />

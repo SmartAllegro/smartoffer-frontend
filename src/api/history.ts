@@ -9,6 +9,7 @@ export type HistoryListItem = {
   query: string;
   provider: string;
   lang: string;
+  search_mode?: "cis" | "international" | string | null;
   time_ms: number;
   created_at: string;
 
@@ -57,6 +58,7 @@ export type HistoryDetailResponse = {
     query: string;
     provider: string;
     lang: string;
+    search_mode?: "cis" | "international" | string | null;
     time_ms: number;
     created_at: string;
 
