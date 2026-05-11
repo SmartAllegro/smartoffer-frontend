@@ -7,9 +7,9 @@ import { HistoryModal } from "@/features/history/components/HistoryModal";
 import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
 import { BillingCounter } from '@/features/search/components/BillingCounter';
 import { Button } from '@/shared/ui/button';
-import { History } from 'lucide-react';
+import { History, LogIn, LogOut } from 'lucide-react';
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
-import { searchSuppliers } from "@/api/search";
+import { searchSuppliers, type SearchMode } from "@/api/search";
 import { fetchBillingMe, type BillingMe } from '@/api/billing';
 import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
@@ -52,9 +52,33 @@ export default function Index() {
 
   const [authOpen, setAuthOpen] = useState(false);
   const [me, setMe] = useState<UserMe | null>(null);
-
+  
   const [billing, setBilling] = useState<BillingMe | null>(null);
-  const [billingLoading, setBillingLoading] = useState(false);
+const [billingLoading, setBillingLoading] = useState(false);
+
+const [searchMode, setSearchMode] = useState<SearchMode>("cis");
+
+const canUseInternationalSearch = useMemo(() => {
+  const planCode = billing?.current_plan_code || "";
+  return ["free_50", "pro_500", "max_1000"].includes(planCode);
+}, [billing?.current_plan_code]);
+
+const handleLogout = useCallback(() => {
+  clearAuthToken();
+  setMe(null);
+  setBilling(null);
+  setSuppliers([]);
+  setRequestId("");
+  setSearchJobId(null);
+  setNoSuppliersFound(false);
+  setStatus("idle");
+}, []);
+
+useEffect(() => {
+  if (!canUseInternationalSearch && searchMode === "international") {
+    setSearchMode("cis");
+  }
+}, [canUseInternationalSearch, searchMode]);
 
   const filteredHistory = useMemo(() => {
     return history.filter(
@@ -135,7 +159,7 @@ export default function Index() {
     };
   }, []);
 
-  const selectedCount = suppliers.filter((s) => s.selected).length;
+  const selectedCount = suppliers.filter((s) => s.selected && Boolean(s.contact?.trim())).length;
 
   const handleSearch = useCallback(async () => {
     if (!me) {
@@ -160,7 +184,7 @@ export default function Index() {
         jobId,
         suppliers: foundSuppliers,
         noSuppliersFound: noFoundFlag,
-      } = await searchSuppliers(equipmentName, newRequestId);
+      } = await searchSuppliers(equipmentName, newRequestId, searchMode);
 
       setSuppliers(foundSuppliers);
       setSearchJobId(jobId);
@@ -199,7 +223,7 @@ export default function Index() {
     } finally {
       void refreshBilling();
     }
-  }, [me, equipmentName, emailSubject, rfqText, toast, addRequest, refreshBilling]);
+  }, [me, equipmentName, emailSubject, rfqText, searchMode, toast, addRequest, refreshBilling]);
 
   const handleSend = useCallback(async () => {
     if (!me) {
@@ -212,12 +236,14 @@ export default function Index() {
       return;
     }
 
-    const selectedSuppliers = suppliers.filter((s) => s.selected && s.status === 'found');
+    const selectedSuppliers = suppliers.filter(
+  (s) => s.selected && s.status === "found" && Boolean(s.contact?.trim())
+);
 
     if (selectedSuppliers.length === 0) {
       toast({
         title: 'Поставщики не выбраны',
-        description: 'Пожалуйста, выберите хотя бы одного поставщика для отправки запроса.',
+        description: 'Выберите хотя бы одного поставщика с найденным email или добавьте email вручную.',
         variant: 'destructive',
       });
       return;
@@ -287,10 +313,19 @@ export default function Index() {
   }, [me, suppliers, requestId, rfqText, emailSubject, toast, updateRequest, searchJobId]);
 
   const handleToggleSelect = useCallback((id: string) => {
-    setSuppliers((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, selected: !s.selected } : s))
-    );
-  }, []);
+  setSuppliers((prev) =>
+    prev.map((s) => {
+      if (s.id !== id) return s;
+
+      // Поставщиков без email показываем, но не даём выбрать для отправки КП.
+      if (!s.contact?.trim()) {
+        return { ...s, selected: false };
+      }
+
+      return { ...s, selected: !s.selected };
+    })
+  );
+}, []);
 
   const handleDelete = useCallback((id: string) => {
     setSuppliers((prev) => prev.filter((s) => s.id !== id));
@@ -364,6 +399,29 @@ export default function Index() {
                   </div>
 
                   <div className="flex flex-col items-end gap-3">
+                    {!me ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 w-[132px] justify-center"
+                        onClick={() => setAuthOpen(true)}
+                      >
+                        <LogIn className="mr-2 h-4 w-4" />
+                        Войти
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9"
+                        onClick={handleLogout}
+                        title="Выйти"
+                        aria-label="Выйти"
+                      >
+                        <LogOut className="h-4 w-4" />
+                      </Button>
+                    )}
+
                     <BillingCounter
                       billing={billing}
                       loading={billingLoading}
@@ -382,7 +440,30 @@ export default function Index() {
                   </div>
                 </div>
 
-                <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-[62px] lg:flex-col lg:items-end lg:gap-3">
+                <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-0 lg:flex-col lg:items-end lg:gap-5">
+                  {!me ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 w-[132px] justify-center"
+                      onClick={() => setAuthOpen(true)}
+                    >
+                      <LogIn className="mr-2 h-4 w-4" />
+                      Войти
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={handleLogout}
+                      title="Выйти"
+                      aria-label="Выйти"
+                    >
+                      <LogOut className="h-4 w-4" />
+                    </Button>
+                  )}
+
                   <BillingCounter
                     billing={billing}
                     loading={billingLoading}
@@ -404,7 +485,7 @@ export default function Index() {
           </div>
 
           <div className="bg-card border border-border rounded-lg p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">{displayName}</p>
                 <p className="text-sm text-muted-foreground">
@@ -412,35 +493,56 @@ export default function Index() {
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-                {!me ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    onClick={() => setAuthOpen(true)}
-                  >
-                    Войти / Регистрация
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    onClick={() => {
-                      clearAuthToken();
-                      setMe(null);
-                      setBilling(null);
-                    }}
-                  >
-                    Выйти
-                  </Button>
-                )}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                  <div className="shrink-0 text-sm font-semibold text-foreground sm:mr-2">
+                    Режим поиска
+                  </div>
+
+                  <div className="grid h-9 w-full grid-cols-2 rounded-lg border border-border bg-background/40 p-[2px] sm:w-[230px]">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => setSearchMode("cis")}
+                      className={[
+                        "inline-flex h-full items-center justify-center rounded-md px-4 text-sm font-medium transition",
+                        searchMode === "cis"
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
+                        isProcessing ? "cursor-not-allowed opacity-60" : "",
+                      ].join(" ")}
+                    >
+                      СНГ
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isProcessing || !canUseInternationalSearch}
+                      onClick={() => setSearchMode("international")}
+                      className={[
+                        "inline-flex h-full items-center justify-center rounded-md px-4 text-sm font-medium transition",
+                        searchMode === "international"
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
+                        isProcessing || !canUseInternationalSearch
+                          ? "cursor-not-allowed opacity-60"
+                          : "",
+                      ].join(" ")}
+                      title={
+                        canUseInternationalSearch
+                          ? "Глобальный поиск по международным поставщикам"
+                          : "Глобальный режим недоступен на тарифе Старт"
+                      }
+                    >
+                      Глобальный
+                    </button>
+                  </div>
+                </div>
 
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full sm:w-auto"
+                  className="h-9 w-full sm:w-auto"
                   onClick={() => setSettingsOpen(true)}
                 >
                   Настройки
@@ -473,7 +575,7 @@ export default function Index() {
                     По данному запросу поставщик в странах СНГ не найден.
                   </p>
                   <p className="text-yellow-300/80">
-                    Попробуйте изменить наименование оборудования.
+                    Попробуйте изменить наименование оборудования или режим поиска на глобальный.
                   </p>
                 </div>
               ) : (

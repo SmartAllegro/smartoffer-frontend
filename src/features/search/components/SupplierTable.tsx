@@ -296,8 +296,10 @@ export function SupplierTable({
 
   // ===== toggle all checkboxes (header button) =====
   const selectableSuppliers = useMemo(() => {
-    return suppliers.filter((s) => s.status !== "sent");
-  }, [suppliers]);
+  return suppliers.filter(
+    (s) => s.status !== "sent" && Boolean(s.contact?.trim())
+  );
+}, [suppliers]);
 
   const allSelected = useMemo(() => {
     if (selectableSuppliers.length === 0) return false;
@@ -382,7 +384,8 @@ export function SupplierTable({
             {suppliers.map((supplier) => {
               const href = safeHref(supplier.source_url);
               const hostLabel = safeHostLabel(supplier.source_url);
-
+              const hasEmail = Boolean(supplier.contact?.trim());
+              const contactLabel = supplier.contact_label || (hasEmail ? supplier.contact : "Контакт через сайт");
               const backendId = supplier.backend_result_id;
               const quoteChecked = !!supplier.quote_received;
 
@@ -401,11 +404,19 @@ export function SupplierTable({
                   {!readOnly && (
                     <TableCell>
                       <Checkbox
-                        checked={!!supplier.selected}
-                        onCheckedChange={() => onToggleSelect(supplier.id)}
-                        disabled={disabled || supplier.status === "sent"}
-                        className="border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                      />
+  checked={!!supplier.selected && hasEmail}
+  onCheckedChange={() => {
+    if (!hasEmail) return;
+    onToggleSelect(supplier.id);
+  }}
+  disabled={disabled || supplier.status === "sent" || !hasEmail}
+  className="border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+  title={
+    hasEmail
+      ? "Выбрать для отправки КП"
+      : "Email не найден. Откройте сайт поставщика вручную."
+  }
+/>
                     </TableCell>
                   )}
 
@@ -414,10 +425,21 @@ export function SupplierTable({
                   </TableCell>
 
                   <TableCell className="align-top">
-                    <span className="text-muted-foreground break-all whitespace-normal">
-                      {supplier.contact || "—"}
-                    </span>
-                  </TableCell>
+  {hasEmail ? (
+    <span className="text-muted-foreground break-all whitespace-normal">
+      {supplier.contact}
+    </span>
+  ) : (
+    <div className="flex flex-col gap-1">
+      <span className="text-sm text-yellow-300">
+        {contactLabel}
+      </span>
+      <span className="text-[11px] text-muted-foreground">
+        Email не найден
+      </span>
+    </div>
+  )}
+</TableCell>
 
                   <TableCell>
                     {href !== "#" ? (

@@ -17,7 +17,7 @@ interface InputBlockProps {
   onRfqTextChange: (value: string) => void;
   onSearch: () => void;
   onSend: () => void;
-}
+ }
 
 const MAX_CHARS = 3000;
 
@@ -66,7 +66,7 @@ export function InputBlock({
         />
       </div>
 
-      <div className="space-y-2">
+            <div className="space-y-2">
         <Label htmlFor="email-subject" className="text-foreground font-medium">
           Тема письма
         </Label>

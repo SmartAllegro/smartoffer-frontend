@@ -29,6 +29,8 @@ export interface Supplier {
   request_id: string;
   supplier_name: string;
   contact: string;
+  contact_status?: "email" | "site";
+  contact_label?: string;
   source_url: string;
   selected: boolean;
   status: SupplierStatus;

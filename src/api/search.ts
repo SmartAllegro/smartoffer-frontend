@@ -1,5 +1,7 @@
 ﻿import { apiFetch } from "./client";
-import { Supplier } from "@/shared/types/rfq";
+import type { Supplier } from "@/shared/types/rfq";
+
+export type SearchMode = "cis" | "international";
 
 type BackendResult = {
   id?: number | null;
@@ -38,17 +40,28 @@ function sleep(ms: number) {
 }
 
 function mapResultsToSuppliers(results: BackendResult[], requestId: string): Supplier[] {
-  return (results || []).map((item, index) => ({
-    id: `${requestId}-${index}`,
-    request_id: requestId,
-    supplier_name: item.title || item.domain || "—",
-    contact: item.emails?.[0] || "",
-    source_url: item.url || "",
-    selected: true,
-    status: "found",
-    created_at: new Date(),
-    backend_result_id: typeof item.id === "number" ? item.id : undefined,
-  }));
+  return (results || []).map((item, index) => {
+    const emails = Array.isArray(item.emails)
+      ? item.emails.filter((x) => typeof x === "string" && x.trim())
+      : [];
+
+    const firstEmail = emails[0] || "";
+    const hasEmail = Boolean(firstEmail);
+
+    return {
+      id: `${requestId}-${index}`,
+      request_id: requestId,
+      supplier_name: item.title || item.domain || "—",
+      contact: firstEmail,
+      contact_status: hasEmail ? "email" : "site",
+      contact_label: hasEmail ? firstEmail : "Контакт через сайт",
+      source_url: item.url || "",
+      selected: hasEmail,
+      status: "found",
+      created_at: new Date(),
+      backend_result_id: typeof item.id === "number" ? item.id : undefined,
+    };
+  });
 }
 
 function normalizeApiError(error: unknown): Error {
@@ -81,7 +94,10 @@ function normalizeApiError(error: unknown): Error {
   return error;
 }
 
-async function submitSearch(query: string): Promise<SearchSubmitResponse> {
+async function submitSearch(
+  query: string,
+  searchMode: SearchMode = "cis"
+): Promise<SearchSubmitResponse> {
   return apiFetch<SearchSubmitResponse>("/search/submit", {
     method: "POST",
     json: {
@@ -89,7 +105,8 @@ async function submitSearch(query: string): Promise<SearchSubmitResponse> {
       lang: "ru",
       top_k: 20,
       enrich_emails: true,
-      yandex_pages_cap: 5,
+      yandex_pages_cap: searchMode === "international" ? 2 : 5,
+      search_mode: searchMode,
     },
   });
 }
@@ -102,10 +119,11 @@ async function getSearchJob(jobId: number): Promise<SearchJobStatusResponse> {
 
 export async function searchSuppliers(
   query: string,
-  requestId: string
+  requestId: string,
+  searchMode: SearchMode = "cis"
 ): Promise<{ jobId: number | null; suppliers: Supplier[]; noSuppliersFound: boolean }> {
   try {
-    const submitted = await submitSearch(query);
+    const submitted = await submitSearch(query, searchMode);
     const jobId = typeof submitted.job_id === "number" ? submitted.job_id : null;
 
     if (!jobId) {
