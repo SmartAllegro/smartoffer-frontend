@@ -572,10 +572,10 @@ useEffect(() => {
               {noSuppliersFound ? (
                 <div className="border border-[#ffbf00] rounded-md px-4 py-3 text-sm leading-relaxed">
                   <p className="text-foreground font-medium">
-                    По данному запросу поставщик в странах СНГ не найден.
+                    По данному запросу поставщик не найден.
                   </p>
                   <p className="text-yellow-300/80">
-                    Попробуйте изменить наименование оборудования или режим поиска на глобальный.
+                    Попробуйте изменить наименование оборудования или режим поиска.
                   </p>
                 </div>
               ) : (
