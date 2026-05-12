@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from "react";
-import { Supplier } from "@/shared/types/rfq";
+import type { Supplier, SupplierReplyStatus } from "@/shared/types/rfq";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
@@ -31,6 +31,13 @@ import {
   ChevronDown,
   CheckSquare2,
   Square,
+  Upload,
+  Clock3,
+  HelpCircle,
+  Ban,
+  MessageSquareText,
+  FileCheck2,
+  ExternalLink
 } from "lucide-react";
 import { cn } from "@/shared/utils/utils";
 
@@ -40,15 +47,33 @@ interface SupplierTableProps {
   onDelete: (id: string) => void;
   onAdd: (email: string) => void;
   disabled?: boolean;
-
-  /** просмотр из истории (без выбора/удаления/ручного добавления) */
   readOnly?: boolean;
 
-  /** NEW: переключение отметки "КП получено" */
-  onToggleQuote?: (supplierId: string, backendResultId: number, next: boolean) => void | Promise<void>;
+  onToggleQuote?: (
+    supplierId: string,
+    backendResultId: number,
+    next: boolean
+  ) => void | Promise<void>;
+
+  onSetReplyStatus?: (
+    supplierId: string,
+    backendResultId: number,
+    status: SupplierReplyStatus
+  ) => void | Promise<void>;
+
+  onUploadQuoteFile?: (
+    supplierId: string,
+    backendResultId: number,
+    file: File
+  ) => void | Promise<void>;
+
+  onOpenQuoteFile?: (
+    supplierId: string,
+    backendResultId: number
+  ) => void | Promise<void>;
 }
 
-function safeHostLabel(rawUrl?: string): string {
+ function safeHostLabel(rawUrl?: string): string {
   const u = (rawUrl ?? "").trim();
   if (!u || u === "#") return "—";
 
@@ -274,6 +299,108 @@ function AddManualEmailModal({
   );
 }
 
+const REPLY_STATUS_OPTIONS: Array<{
+  value: SupplierReplyStatus;
+  label: string;
+  shortLabel: string;
+}> = [
+  { value: "no_reply", label: "Нет ответа", shortLabel: "Нет ответа" },
+  { value: "in_progress", label: "В работе", shortLabel: "В работе" },
+  { value: "quote_received", label: "КП получено", shortLabel: "КП" },
+  { value: "clarification_requested", label: "Нужны уточнения", shortLabel: "Уточнение" },
+  { value: "declined", label: "Отказ", shortLabel: "Отказ" },
+  { value: "manual_review", label: "Проверить вручную", shortLabel: "Проверить" },
+];
+
+function replyStatusLabel(status?: string | null): string {
+  const found = REPLY_STATUS_OPTIONS.find((x) => x.value === status);
+  return found?.label || "Нет ответа";
+}
+
+function quoteSourceLabel(source?: string | null): string {
+  if (source === "manual") return "вручную";
+  if (source === "text") return "текст";
+  if (source === "attachment") return "файл";
+  if (source === "link") return "ссылка";
+  return "";
+}
+
+function quoteStatusText(supplier: Supplier): string {
+  const fileCount = Number(supplier.quote_file_count || 0);
+
+  if (supplier.quote_received) {
+    if (supplier.quote_source === "attachment" || fileCount > 0) {
+      return fileCount > 1
+        ? `Загружено файлов КП · ${fileCount}`
+        : "Загружен файл КП · 1";
+    }
+
+    return "Отмечено вручную";
+  }
+
+  if (supplier.reply_status === "declined") {
+    return "КП не получено";
+  }
+
+  if (supplier.reply_status === "in_progress") {
+    return "Ожидаем КП";
+  }
+
+  if (supplier.reply_status === "clarification_requested") {
+    return "КП пока не получено";
+  }
+
+  return "КП пока не получено";
+}
+
+function ReplyStatusIcon({ status }: { status?: string | null }) {
+  if (status === "quote_received") {
+    return <FileCheck2 className="h-3.5 w-3.5" />;
+  }
+
+  if (status === "in_progress") {
+    return <Clock3 className="h-3.5 w-3.5" />;
+  }
+
+  if (status === "clarification_requested") {
+    return <HelpCircle className="h-3.5 w-3.5" />;
+  }
+
+  if (status === "declined") {
+    return <Ban className="h-3.5 w-3.5" />;
+  }
+
+  if (status === "manual_review") {
+    return <AlertCircle className="h-3.5 w-3.5" />;
+  }
+
+  return <MessageSquareText className="h-3.5 w-3.5" />;
+}
+
+function replyStatusBadgeClass(status?: string | null) {
+  if (status === "quote_received") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  }
+
+  if (status === "in_progress") {
+    return "border-[#ffbf00]/30 bg-[#ffbf00]/10 text-[#ffbf00]";
+  }
+
+  if (status === "clarification_requested") {
+    return "border-blue-500/30 bg-blue-500/10 text-blue-300";
+  }
+
+  if (status === "declined") {
+    return "border-red-500/30 bg-red-500/10 text-red-300";
+  }
+
+  if (status === "manual_review") {
+    return "border-violet-500/30 bg-violet-500/10 text-violet-300";
+  }
+
+  return "border-white/10 bg-white/5 text-white/60";
+}
+
 export function SupplierTable({
   suppliers,
   onToggleSelect,
@@ -282,6 +409,9 @@ export function SupplierTable({
   disabled = false,
   readOnly = false,
   onToggleQuote,
+  onSetReplyStatus,
+  onUploadQuoteFile,
+  onOpenQuoteFile,
 }: SupplierTableProps) {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
@@ -328,13 +458,39 @@ export function SupplierTable({
   const toggleAllDisabled =
     disabled || readOnly || selectableSuppliers.length === 0;
 
-  const showQuoteColumn = true; // всегда показываем колонку "КП получено"
+  const showQuoteColumn = readOnly;
   const canToggleQuote = typeof onToggleQuote === "function" && !disabled;
+
+  const quoteActionButtonBase =
+  "inline-flex h-6 items-center justify-center rounded-md border px-2 text-[10px] font-semibold leading-none transition";
 
   return (
     <div className="space-y-4">
-      <div className="border border-border rounded-lg overflow-hidden bg-card">
-        <Table>
+      <div
+  className={cn(
+    "border border-border rounded-lg bg-card",
+    readOnly ? "overflow-x-auto" : "overflow-hidden"
+  )}
+>
+  <Table className={cn(readOnly && "table-fixed")}>
+    {readOnly ? (
+      <colgroup>
+        <col style={{ width: "21%" }} />
+        <col style={{ width: "19%" }} />
+        <col style={{ width: "16%" }} />
+        <col style={{ width: "12%" }} />
+        <col style={{ width: "32%" }} />
+      </colgroup>
+    ) : (
+      <colgroup>
+        <col style={{ width: "44px" }} />
+        <col style={{ width: "25%" }} />
+        <col style={{ width: "27%" }} />
+        <col style={{ width: "24%" }} />
+        <col style={{ width: "18%" }} />
+        <col style={{ width: "44px" }} />
+      </colgroup>
+    )}
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
               {!readOnly && (
@@ -371,10 +527,10 @@ export function SupplierTable({
               </TableHead>
 
               {showQuoteColumn && (
-                <TableHead className="text-muted-foreground font-normal w-16 text-center">
-                  КП получено
-                </TableHead>
-              )}
+  <TableHead className="text-muted-foreground font-normal">
+    КП получено
+  </TableHead>
+)}
 
               {!readOnly && <TableHead className="w-12" />}
             </TableRow>
@@ -388,9 +544,16 @@ export function SupplierTable({
               const contactLabel = supplier.contact_label || (hasEmail ? supplier.contact : "Контакт через сайт");
               const backendId = supplier.backend_result_id;
               const quoteChecked = !!supplier.quote_received;
+              const quoteFileCount = Number(supplier.quote_file_count || 0);
 
-              const quoteDisabled =
-                !backendId || !canToggleQuote; // если нет backend_result_id — некуда сохранять
+const quoteToggleDisabled =
+  !backendId || !canToggleQuote;
+
+const replyStatusDisabled =
+  !backendId || typeof onSetReplyStatus !== "function";
+
+const uploadQuoteDisabled =
+  !backendId || typeof onUploadQuoteFile !== "function";
 
               return (
                 <TableRow
@@ -420,18 +583,33 @@ export function SupplierTable({
                     </TableCell>
                   )}
 
-                  <TableCell className="font-medium text-foreground">
-                    {supplier.supplier_name || "—"}
-                  </TableCell>
+                  <TableCell className="align-middle px-3 py-3 font-medium text-foreground">
+  <div
+    className={cn(
+      "max-w-full break-words leading-snug",
+      readOnly &&
+        "overflow-hidden [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+    )}
+    title={supplier.supplier_name || "—"}
+  >
+    {supplier.supplier_name || "—"}
+  </div>
+</TableCell>
 
-                  <TableCell className="align-top">
+                  <TableCell className="align-middle px-3 py-3">
   {hasEmail ? (
-    <span className="text-muted-foreground break-all whitespace-normal">
+    <span
+      className={cn(
+        "block max-w-full text-muted-foreground",
+        readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+      )}
+      title={supplier.contact}
+    >
       {supplier.contact}
     </span>
   ) : (
-    <div className="flex flex-col gap-1">
-      <span className="text-sm text-yellow-300">
+    <div className="flex flex-col gap-0.5">
+      <span className="truncate text-sm text-yellow-300" title={contactLabel}>
         {contactLabel}
       </span>
       <span className="text-[11px] text-muted-foreground">
@@ -441,23 +619,35 @@ export function SupplierTable({
   )}
 </TableCell>
 
-                  <TableCell>
-                    {href !== "#" ? (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline break-all whitespace-normal inline-block"
-                      >
-                        {hostLabel}
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground break-all whitespace-normal inline-block">{hostLabel}</span>
-                    )}
-                  </TableCell>
+                  <TableCell className="align-middle px-3 py-3">
+  {href !== "#" ? (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "inline-block max-w-full text-primary hover:underline",
+        readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+      )}
+      title={hostLabel}
+    >
+      {hostLabel}
+    </a>
+  ) : (
+    <span
+      className={cn(
+        "inline-block max-w-full text-muted-foreground",
+        readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+      )}
+      title={hostLabel}
+    >
+      {hostLabel}
+    </span>
+  )}
+</TableCell>
 
-                  <TableCell>
-                    <SupplierStatusBadge
+                  <TableCell className="align-middle px-3 py-3">
+  <SupplierStatusBadge
                       status={supplier.status}
                       onShowError={
                         supplier.status === "error"
@@ -467,23 +657,191 @@ export function SupplierTable({
                     />
                   </TableCell>
 
-                  {showQuoteColumn && (
-                    <TableCell className="text-center">
-                      <Checkbox
-                        checked={quoteChecked}
-                        disabled={quoteDisabled}
-                        onCheckedChange={() => {
-                          if (!backendId || !onToggleQuote) return;
-                          onToggleQuote(supplier.id, backendId, !quoteChecked);
-                        }}
-                        title={
-                          !backendId
-                            ? "Нельзя сохранить: нет backend_result_id"
-                            : "Отметить, что КП получено"
-                        }
-                      />
-                    </TableCell>
-                  )}
+{showQuoteColumn && (
+  <TableCell className="align-middle px-3 py-2">
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex min-w-0 items-center gap-2">
+  <div
+    className={cn(
+      "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold leading-none",
+      replyStatusBadgeClass(supplier.reply_status)
+    )}
+  >
+    <ReplyStatusIcon status={supplier.reply_status} />
+    <span>{replyStatusLabel(supplier.reply_status)}</span>
+  </div>
+
+  <div
+    className={cn(
+      "min-w-0 truncate text-[11px]",
+      supplier.quote_received
+        ? "text-emerald-300"
+        : supplier.reply_status === "in_progress"
+          ? "text-[#ffbf00]"
+          : supplier.reply_status === "declined"
+            ? "text-red-300"
+            : "text-muted-foreground"
+    )}
+    title={quoteStatusText(supplier)}
+  >
+    {quoteStatusText(supplier)}
+  </div>
+</div>
+
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          disabled={replyStatusDisabled}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!backendId || typeof onSetReplyStatus !== "function") return;
+            void onSetReplyStatus(supplier.id, backendId, "in_progress");
+          }}
+          className={cn(
+            quoteActionButtonBase,
+            "border-[#ffbf00]/30 bg-[#ffbf00]/10 text-[#ffbf00] hover:bg-[#ffbf00] hover:text-[#2b2100]",
+            replyStatusDisabled && "cursor-not-allowed opacity-50"
+          )}
+          title="Поставщик сообщил, что запрос в работе"
+        >
+          В работе
+        </button>
+
+        <button
+          type="button"
+          disabled={replyStatusDisabled}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!backendId || typeof onSetReplyStatus !== "function") return;
+            void onSetReplyStatus(supplier.id, backendId, "quote_received");
+          }}
+          className={cn(
+            quoteActionButtonBase,
+            "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500 hover:text-white",
+            replyStatusDisabled && "cursor-not-allowed opacity-50"
+          )}
+          title="Отметить, что КП получено вручную"
+        >
+          КП
+        </button>
+
+        <button
+          type="button"
+          disabled={replyStatusDisabled}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!backendId || typeof onSetReplyStatus !== "function") return;
+            void onSetReplyStatus(
+              supplier.id,
+              backendId,
+              "clarification_requested"
+            );
+          }}
+          className={cn(
+            quoteActionButtonBase,
+            "border-blue-500/30 bg-blue-500/10 text-blue-300 hover:bg-blue-500 hover:text-white",
+            replyStatusDisabled && "cursor-not-allowed opacity-50"
+          )}
+          title="Поставщик запросил уточнение"
+        >
+          Уточнение
+        </button>
+
+        <button
+          type="button"
+          disabled={replyStatusDisabled}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!backendId || typeof onSetReplyStatus !== "function") return;
+            void onSetReplyStatus(supplier.id, backendId, "declined");
+          }}
+          className={cn(
+            quoteActionButtonBase,
+            "border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500 hover:text-white",
+            replyStatusDisabled && "cursor-not-allowed opacity-50"
+          )}
+          title="Поставщик отказал или нет возможности поставить"
+        >
+          Отказ
+        </button>
+
+        <label
+          className={cn(
+            "ml-1 inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted-foreground transition hover:text-white",
+            quoteToggleDisabled && "cursor-not-allowed opacity-50"
+          )}
+          title="Отметить, что КП получено"
+        >
+          <Checkbox
+            checked={quoteChecked}
+            disabled={quoteToggleDisabled}
+            onCheckedChange={() => {
+              if (!backendId || !onToggleQuote) return;
+              void onToggleQuote(supplier.id, backendId, !quoteChecked);
+            }}
+            className="h-3.5 w-3.5"
+          />
+          <span>КП получено</span>
+        </label>
+{backendId && quoteFileCount > 0 && onOpenQuoteFile ? (
+  <button
+    type="button"
+    onClick={(event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (!backendId || typeof onOpenQuoteFile !== "function") return;
+      void onOpenQuoteFile(supplier.id, backendId);
+    }}
+    className="ml-auto inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 text-[10px] font-semibold text-emerald-300 transition hover:bg-emerald-500 hover:text-white"
+    title="Открыть файл КП"
+  >
+    <ExternalLink className="h-3.5 w-3.5" />
+    Открыть КП
+  </button>
+) : null}
+
+        {backendId && onUploadQuoteFile ? (
+          <>
+            <input
+              id={`quote-file-${supplier.id}`}
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ods,.jpg,.jpeg,.png"
+              className="hidden"
+              onChange={(event) => {
+                const selectedFile = event.target.files?.[0];
+                event.target.value = "";
+
+                if (!selectedFile || !backendId || !onUploadQuoteFile) return;
+                void onUploadQuoteFile(supplier.id, backendId, selectedFile);
+              }}
+            />
+
+            <label
+              htmlFor={`quote-file-${supplier.id}`}
+              className={cn(
+                "ml-auto inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 text-[10px] font-semibold text-white/70 transition hover:border-[#ffbf00]/50 hover:bg-[#ffbf00]/10 hover:text-[#ffbf00]",
+                uploadQuoteDisabled && "pointer-events-none opacity-50"
+              )}
+              title="Загрузить файл КП"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Загрузить
+            </label>
+          </>
+        ) : null}
+      </div>
+    </div>
+  </TableCell>
+)}
 
                   {!readOnly && (
                     <TableCell>

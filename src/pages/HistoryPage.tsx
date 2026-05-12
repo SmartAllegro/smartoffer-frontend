@@ -32,15 +32,20 @@ import type { Supplier } from "@/shared/types/rfq";
 
 import { SupplierTable } from "@/features/search/components/SupplierTable";
 import {
+  downloadQuoteFile,
   getHistoryDetail,
   getHistoryStats,
+  getResultReplies,
   listHistory,
   setJobDealDone,
   setQuoteReceived,
+  updateResultReplyStatus,
+  uploadQuoteFile,
   type HistoryListItem,
   type HistoryOutcome,
   type HistoryPeriod,
   type HistoryStatsResponse,
+  type ReplyStatus,
 } from "@/api/history";
 
 const PAGE_LIMIT = 50;
@@ -487,6 +492,11 @@ export default function HistoryPage() {
           error_details: derived.error_details,
           quote_received: !!r?.quote_received,
           quote_received_at: r?.quote_received_at ? new Date(r.quote_received_at) : null,
+reply_status: r?.reply_status || "no_reply",
+quote_source: r?.quote_source || null,
+quote_file_count: normalizeNumber(r?.quote_file_count),
+last_reply_at: r?.last_reply_at ? new Date(r.last_reply_at) : null,
+latest_reply: r?.latest_reply || null,
         } as Supplier;
       });
 
@@ -571,7 +581,27 @@ export default function HistoryPage() {
       );
 
       try {
-        await setQuoteReceived(backendResultId, next);
+        const res = await setQuoteReceived(backendResultId, next);
+
+setDetailSuppliers((cur) =>
+  cur.map((s) =>
+    s.id === supplierId
+      ? {
+          ...s,
+          quote_received: !!res.quote_received,
+          quote_received_at: res.quote_received_at
+            ? new Date(res.quote_received_at)
+            : null,
+          reply_status:
+            res.reply_status ||
+            (res.quote_received ? "quote_received" : "no_reply"),
+          quote_source: res.quote_source || null,
+          quote_file_count: normalizeNumber(res.quote_file_count),
+          last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
+        }
+      : s
+  )
+);
 
         if (detailJobId && delta !== 0) {
           setItems((current) =>
@@ -600,6 +630,217 @@ export default function HistoryPage() {
     },
     [detailSuppliers, detailJobId, toast]
   );
+
+const handleSetReplyStatus = useCallback(
+  async (supplierId: string, backendResultId: number, status: ReplyStatus) => {
+    const prevSuppliers = detailSuppliers;
+    const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
+    const wasReceived = Boolean(prevSupplier?.quote_received);
+    const nextReceived = status === "quote_received";
+    const delta = wasReceived === nextReceived ? 0 : nextReceived ? 1 : -1;
+
+    setDetailSuppliers((cur) =>
+      cur.map((s) =>
+        s.id === supplierId
+          ? {
+              ...s,
+              reply_status: status,
+              quote_received: nextReceived,
+              quote_received_at: nextReceived ? new Date() : null,
+              quote_source: nextReceived ? "manual" : null,
+            }
+          : s
+      )
+    );
+
+    try {
+      const res = await updateResultReplyStatus(backendResultId, {
+        status,
+        quote_source: status === "quote_received" ? "manual" : null,
+        comment: null,
+      });
+
+      setDetailSuppliers((cur) =>
+        cur.map((s) =>
+          s.id === supplierId
+            ? {
+                ...s,
+                reply_status: res.reply_status || status,
+                quote_received: !!res.quote_received,
+                quote_received_at: res.quote_received_at
+                  ? new Date(res.quote_received_at)
+                  : null,
+                quote_source: res.quote_source || null,
+                quote_file_count: normalizeNumber(res.quote_file_count),
+                last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
+              }
+            : s
+        )
+      );
+
+      if (detailJobId && delta !== 0) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === detailJobId
+              ? {
+                  ...item,
+                  quotes_received_count: Math.max(
+                    0,
+                    normalizeNumber(item.quotes_received_count) + delta
+                  ),
+                }
+              : item
+          )
+        );
+      }
+    } catch (e) {
+      setDetailSuppliers(prevSuppliers);
+
+      toast({
+        title: "Не удалось сохранить статус ответа",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  },
+  [detailSuppliers, detailJobId, toast]
+);
+
+const handleOpenQuoteFile = useCallback(
+  async (supplierId: string, backendResultId: number) => {
+    const tab = window.open("about:blank", "_blank");
+
+    try {
+      const replies = await getResultReplies(backendResultId);
+
+      const attachments = (replies.items || [])
+        .flatMap((reply) => reply.attachments || [])
+        .filter((file) => typeof file.id === "number");
+
+      if (!attachments.length) {
+        throw new Error("Файл КП не найден. Попробуйте обновить историю.");
+      }
+
+      const file = attachments[0];
+      const downloaded = await downloadQuoteFile(file.id);
+
+      const url = URL.createObjectURL(downloaded.blob);
+
+      if (tab) {
+        tab.location.href = url;
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.download = downloaded.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 60_000);
+    } catch (e) {
+      if (tab && !tab.closed) {
+        tab.close();
+      }
+
+      toast({
+        title: "Не удалось открыть КП",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  },
+  [toast]
+);
+
+const handleUploadQuoteFile = useCallback(
+  async (supplierId: string, backendResultId: number, file: File) => {
+    const prevSuppliers = detailSuppliers;
+    const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
+    const wasReceived = Boolean(prevSupplier?.quote_received);
+
+    const maxBytes = 20 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast({
+        title: "Файл слишком большой",
+        description: "Максимальный размер файла КП — 20 МБ.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDetailSuppliers((cur) =>
+      cur.map((s) =>
+        s.id === supplierId
+          ? {
+              ...s,
+              reply_status: "quote_received",
+              quote_received: true,
+              quote_received_at: new Date(),
+              quote_source: "attachment",
+              quote_file_count: normalizeNumber(s.quote_file_count) + 1,
+            }
+          : s
+      )
+    );
+
+    try {
+      const res = await uploadQuoteFile(backendResultId, file);
+
+      setDetailSuppliers((cur) =>
+        cur.map((s) =>
+          s.id === supplierId
+            ? {
+                ...s,
+                reply_status: res.reply_status || "quote_received",
+                quote_received: !!res.quote_received,
+                quote_received_at: res.quote_received_at
+                  ? new Date(res.quote_received_at)
+                  : null,
+                quote_source: res.quote_source || "attachment",
+                quote_file_count: normalizeNumber(res.quote_file_count),
+                last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
+              }
+            : s
+        )
+      );
+
+      if (detailJobId && !wasReceived) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === detailJobId
+              ? {
+                  ...item,
+                  quotes_received_count: Math.max(
+                    0,
+                    normalizeNumber(item.quotes_received_count) + 1
+                  ),
+                }
+              : item
+          )
+        );
+      }
+
+      toast({
+        title: "КП загружено",
+        description: file.name,
+      });
+    } catch (e) {
+      setDetailSuppliers(prevSuppliers);
+
+      toast({
+        title: "Не удалось загрузить КП",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  },
+  [detailSuppliers, detailJobId, toast]
+);
 
   return (
     <div className="min-h-screen bg-background text-white">
@@ -1047,6 +1288,9 @@ export default function HistoryPage() {
                 disabled={false}
                 readOnly={true}
                 onToggleQuote={handleToggleQuote}
+                onSetReplyStatus={handleSetReplyStatus}
+                onUploadQuoteFile={handleUploadQuoteFile}
+                onOpenQuoteFile={handleOpenQuoteFile}
               />
             )}
           </div>

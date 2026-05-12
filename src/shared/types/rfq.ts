@@ -33,18 +33,57 @@ export interface Supplier {
   contact_label?: string;
   source_url: string;
   selected: boolean;
-  status: SupplierStatus;
+  status: "found" | "sent" | "error";
   created_at: Date;
+  backend_result_id?: number;
+
   error_message?: string;
   error_details?: string;
   error_code?: string;
-  organization_id?: string;
-  created_by_user_id?: string;
 
-  // связь с бэкендом (SearchResult.id)
-  backend_result_id?: number;
-
-  // NEW: отметка "КП получено"
   quote_received?: boolean;
   quote_received_at?: Date | null;
+
+  reply_status?: SupplierReplyStatus | string;
+  quote_source?: SupplierQuoteSource | string | null;
+  quote_file_count?: number;
+  last_reply_at?: Date | null;
+  latest_reply?: SupplierLatestReply | null;
 }
+
+export type SupplierReplyStatus =
+  | "no_reply"
+  | "in_progress"
+  | "quote_received"
+  | "clarification_requested"
+  | "declined"
+  | "manual_review";
+
+export type SupplierQuoteSource =
+  | "manual"
+  | "text"
+  | "attachment"
+  | "link";
+
+export type SupplierReplyAttachment = {
+  id: number;
+  original_filename: string;
+  content_type?: string | null;
+  size_bytes: number;
+  detected_type: string;
+  uploaded_at: string;
+};
+
+export type SupplierLatestReply = {
+  id: number;
+  source: string;
+  status: SupplierReplyStatus | string;
+  quote_source?: SupplierQuoteSource | string | null;
+  subject?: string | null;
+  body_text?: string | null;
+  from_email?: string | null;
+  from_name?: string | null;
+  received_at?: string | null;
+  created_at: string;
+  attachments?: SupplierReplyAttachment[];
+};
