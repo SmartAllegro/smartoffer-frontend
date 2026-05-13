@@ -328,14 +328,11 @@ function quoteSourceLabel(source?: string | null): string {
 function quoteStatusText(supplier: Supplier): string {
   const fileCount = Number(supplier.quote_file_count || 0);
 
-  if (supplier.quote_received) {
-    if (supplier.quote_source === "attachment" || fileCount > 0) {
-      return fileCount > 1
-        ? `Загружено файлов КП · ${fileCount}`
-        : "Загружен файл КП · 1";
-    }
-
-    return "Отмечено вручную";
+  if (
+    supplier.quote_received ||
+    supplier.reply_status === "quote_received"
+  ) {
+    return `Файлов: ${fileCount}`;
   }
 
   if (supplier.reply_status === "declined") {
@@ -401,6 +398,41 @@ function replyStatusBadgeClass(status?: string | null) {
   return "border-white/10 bg-white/5 text-white/60";
 }
 
+function hasSupplierReply(supplier: Supplier): boolean {
+  const reply = supplier.latest_reply;
+
+  if (!reply) return false;
+  if (reply.source === "system") return false;
+
+  return Boolean(
+    String(reply.body_text || "").trim() ||
+      String(reply.subject || "").trim() ||
+      String(reply.from_email || "").trim()
+  );
+}
+
+function formatReplyDate(value?: string | null): string {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function replySourceLabel(source?: string | null): string {
+  if (source === "inbound_email") return "Входящее письмо";
+  if (source === "manual") return "Ручная отметка";
+  if (source === "system") return "Системное событие";
+  return "Ответ поставщика";
+}
+
 export function SupplierTable({
   suppliers,
   onToggleSelect,
@@ -416,7 +448,7 @@ export function SupplierTable({
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
     useState<Supplier | null>(null);
-
+  const [replyPreviewSupplier, setReplyPreviewSupplier] = useState<Supplier | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
   const handleShowError = (supplier: Supplier) => {
@@ -475,11 +507,11 @@ export function SupplierTable({
   <Table className={cn(readOnly && "table-fixed")}>
     {readOnly ? (
       <colgroup>
-        <col style={{ width: "21%" }} />
-        <col style={{ width: "19%" }} />
-        <col style={{ width: "16%" }} />
-        <col style={{ width: "12%" }} />
-        <col style={{ width: "32%" }} />
+        <col style={{ width: "15%" }} />
+        <col style={{ width: "17%" }} />
+        <col style={{ width: "15%" }} />
+        <col style={{ width: "11%" }} />
+        <col style={{ width: "42%" }} />
       </colgroup>
     ) : (
       <colgroup>
@@ -513,22 +545,25 @@ export function SupplierTable({
                 </TableHead>
               )}
 
-              <TableHead className="text-muted-foreground font-normal">
-                Поставщик
-              </TableHead>
-              <TableHead className="text-muted-foreground font-normal">
-                Контакт
-              </TableHead>
-              <TableHead className="text-muted-foreground font-normal">
-                Источник
-              </TableHead>
-              <TableHead className="text-muted-foreground font-normal">
-                Статус
-              </TableHead>
+              <TableHead className="text-center text-muted-foreground font-normal">
+  Поставщик
+</TableHead>
 
-              {showQuoteColumn && (
-  <TableHead className="text-muted-foreground font-normal">
-    КП получено
+<TableHead className="text-center text-muted-foreground font-normal">
+  Контакт
+</TableHead>
+
+<TableHead className="text-center text-muted-foreground font-normal">
+  Источник
+</TableHead>
+
+<TableHead className="w-[100px] min-w-[100px] px-2 text-center text-muted-foreground font-normal">
+  Статус
+</TableHead>
+
+{showQuoteColumn && (
+  <TableHead className="w-[420px] min-w-[420px] px-3 text-center text-muted-foreground font-normal">
+    Обратная связь
   </TableHead>
 )}
 
@@ -646,7 +681,7 @@ const uploadQuoteDisabled =
   )}
 </TableCell>
 
-                  <TableCell className="align-middle px-3 py-3">
+                  <TableCell className="w-[100px] min-w-[100px] px-2 text-center align-middle">
   <SupplierStatusBadge
                       status={supplier.status}
                       onShowError={
@@ -658,36 +693,38 @@ const uploadQuoteDisabled =
                   </TableCell>
 
 {showQuoteColumn && (
-  <TableCell className="align-middle px-3 py-2">
+  <TableCell className="w-[420px] min-w-[420px] px-3 align-middle">
     <div className="flex min-w-0 flex-col gap-1.5">
+      {/* 1. Верхняя строка: текущий статус + подпись */}
       <div className="flex min-w-0 items-center gap-2">
-  <div
-    className={cn(
-      "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold leading-none",
-      replyStatusBadgeClass(supplier.reply_status)
-    )}
-  >
-    <ReplyStatusIcon status={supplier.reply_status} />
-    <span>{replyStatusLabel(supplier.reply_status)}</span>
-  </div>
+        <div
+          className={cn(
+            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold leading-none",
+            replyStatusBadgeClass(supplier.reply_status)
+          )}
+        >
+          <ReplyStatusIcon status={supplier.reply_status} />
+          <span>{replyStatusLabel(supplier.reply_status)}</span>
+        </div>
 
-  <div
-    className={cn(
-      "min-w-0 truncate text-[11px]",
-      supplier.quote_received
-        ? "text-emerald-300"
-        : supplier.reply_status === "in_progress"
-          ? "text-[#ffbf00]"
-          : supplier.reply_status === "declined"
-            ? "text-red-300"
-            : "text-muted-foreground"
-    )}
-    title={quoteStatusText(supplier)}
-  >
-    {quoteStatusText(supplier)}
-  </div>
-</div>
+        <div
+          className={cn(
+            "min-w-0 truncate text-[11px]",
+            supplier.quote_received || supplier.reply_status === "quote_received"
+              ? "text-emerald-300"
+              : supplier.reply_status === "in_progress"
+                ? "text-[#ffbf00]"
+                : supplier.reply_status === "declined"
+                  ? "text-red-300"
+                  : "text-muted-foreground"
+          )}
+          title={quoteStatusText(supplier)}
+        >
+          {quoteStatusText(supplier)}
+        </div>
+      </div>
 
+      {/* 2. Средняя строка: ручные статусы */}
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <button
           type="button"
@@ -724,7 +761,7 @@ const uploadQuoteDisabled =
             "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500 hover:text-white",
             replyStatusDisabled && "cursor-not-allowed opacity-50"
           )}
-          title="Отметить, что КП получено вручную"
+          title="Поставщик прислал КП"
         >
           КП
         </button>
@@ -772,78 +809,113 @@ const uploadQuoteDisabled =
         >
           Отказ
         </button>
+      </div>
 
-        <label
-          className={cn(
-            "ml-1 inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted-foreground transition hover:text-white",
-            quoteToggleDisabled && "cursor-not-allowed opacity-50"
-          )}
-          title="Отметить, что КП получено"
-        >
-          <Checkbox
-            checked={quoteChecked}
-            disabled={quoteToggleDisabled}
-            onCheckedChange={() => {
-              if (!backendId || !onToggleQuote) return;
-              void onToggleQuote(supplier.id, backendId, !quoteChecked);
-            }}
-            className="h-3.5 w-3.5"
-          />
-          <span>КП получено</span>
-        </label>
-{backendId && quoteFileCount > 0 && onOpenQuoteFile ? (
-  <button
-    type="button"
-    onClick={(event) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (!backendId || typeof onOpenQuoteFile !== "function") return;
-      void onOpenQuoteFile(supplier.id, backendId);
-    }}
-    className="ml-auto inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 text-[10px] font-semibold text-emerald-300 transition hover:bg-emerald-500 hover:text-white"
-    title="Открыть файл КП"
-  >
-    <ExternalLink className="h-3.5 w-3.5" />
-    Открыть КП
-  </button>
-) : null}
-
-        {backendId && onUploadQuoteFile ? (
-          <>
-            <input
-              id={`quote-file-${supplier.id}`}
-              type="file"
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.ods,.jpg,.jpeg,.png"
-              className="hidden"
-              onChange={(event) => {
-                const selectedFile = event.target.files?.[0];
-                event.target.value = "";
-
-                if (!selectedFile || !backendId || !onUploadQuoteFile) return;
-                void onUploadQuoteFile(supplier.id, backendId, selectedFile);
+      {/* 3. Нижняя строка: фиксированная отметка КП + действия */}
+      <div className="flex w-full items-center justify-start gap-2">
+        <div className="flex w-[102px] shrink-0 items-center justify-start">
+          <label
+            className={cn(
+              "inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted-foreground transition hover:text-white",
+              quoteToggleDisabled && "cursor-not-allowed opacity-50"
+            )}
+            title="Подтвердить получение КП"
+          >
+            <Checkbox
+              checked={quoteChecked}
+              disabled={quoteToggleDisabled}
+              onCheckedChange={() => {
+                if (!backendId || !onToggleQuote) return;
+                void onToggleQuote(supplier.id, backendId, !quoteChecked);
               }}
+              className="h-3.5 w-3.5"
             />
+            <span>КП получено</span>
+          </label>
+        </div>
 
-            <label
-              htmlFor={`quote-file-${supplier.id}`}
-              className={cn(
-                "ml-auto inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 text-[10px] font-semibold text-white/70 transition hover:border-[#ffbf00]/50 hover:bg-[#ffbf00]/10 hover:text-[#ffbf00]",
-                uploadQuoteDisabled && "pointer-events-none opacity-50"
-              )}
-              title="Загрузить файл КП"
+        <div className="flex min-w-0 flex-nowrap items-center justify-start gap-1.5 whitespace-nowrap">
+          {backendId && quoteFileCount > 0 && onOpenQuoteFile ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (!backendId || typeof onOpenQuoteFile !== "function") return;
+                void onOpenQuoteFile(supplier.id, backendId);
+              }}
+              className="
+                inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
+                border border-emerald-500/25 bg-emerald-500/10 px-2
+                text-[10px] font-semibold text-emerald-300
+                transition hover:bg-emerald-500 hover:text-white
+              "
+              title="Открыть файл КП"
             >
-              <Upload className="h-3.5 w-3.5" />
-              Загрузить
-            </label>
-          </>
-        ) : null}
+              <ExternalLink className="h-3.5 w-3.5" />
+              Открыть КП
+            </button>
+          ) : null}
+
+          {hasSupplierReply(supplier) ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setReplyPreviewSupplier(supplier);
+              }}
+              className="
+                inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
+                border border-sky-500/25 bg-sky-500/10 px-2
+                text-[10px] font-semibold text-sky-200
+                transition hover:bg-sky-500 hover:text-white
+              "
+              title="Открыть ответ поставщика"
+            >
+              <MessageSquareText className="h-3.5 w-3.5" />
+              Ответ
+            </button>
+          ) : null}
+
+          {backendId && onUploadQuoteFile ? (
+            <>
+              <input
+                id={`quote-file-${supplier.id}`}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ods,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(event) => {
+                  const selectedFile = event.target.files?.[0];
+                  event.target.value = "";
+
+                  if (!selectedFile || !backendId || !onUploadQuoteFile) return;
+                  void onUploadQuoteFile(supplier.id, backendId, selectedFile);
+                }}
+              />
+
+              <label
+                htmlFor={`quote-file-${supplier.id}`}
+                className={cn(
+                  "inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 text-[10px] font-semibold text-white/70 transition hover:border-[#ffbf00]/50 hover:bg-[#ffbf00]/10 hover:text-[#ffbf00]",
+                  uploadQuoteDisabled && "pointer-events-none opacity-50"
+                )}
+                title="Загрузить файл КП"
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Загрузить
+              </label>
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   </TableCell>
-)}
-
-                  {!readOnly && (
+)}                  {!readOnly && (
                     <TableCell>
                       <Button
                         variant="ghost"
@@ -890,6 +962,87 @@ const uploadQuoteDisabled =
         onOpenChange={setErrorModalOpen}
         supplier={selectedErrorSupplier}
       />
+<Dialog
+  open={!!replyPreviewSupplier}
+  onOpenChange={(open) => {
+    if (!open) setReplyPreviewSupplier(null);
+  }}
+>
+  <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col [&_[data-radix-dialog-close]]:hidden">
+    <DialogHeader>
+      <DialogTitle className="text-xl">Ответ поставщика</DialogTitle>
+    </DialogHeader>
+
+    {replyPreviewSupplier?.latest_reply ? (
+      <div className="flex-1 overflow-auto space-y-4">
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+          <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <div className="text-xs text-muted-foreground">Поставщик</div>
+              <div className="mt-1 font-medium text-foreground">
+                {replyPreviewSupplier.supplier_name || "—"}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-muted-foreground">Источник</div>
+              <div className="mt-1 font-medium text-foreground">
+                {replySourceLabel(replyPreviewSupplier.latest_reply.source)}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-muted-foreground">От</div>
+              <div className="mt-1 font-medium text-foreground">
+                {replyPreviewSupplier.latest_reply.from_email || "—"}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-muted-foreground">Дата</div>
+              <div className="mt-1 font-medium text-foreground">
+                {formatReplyDate(
+                  replyPreviewSupplier.latest_reply.received_at ||
+                    replyPreviewSupplier.latest_reply.created_at
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Тема</div>
+          <Input
+            value={replyPreviewSupplier.latest_reply.subject || "—"}
+            readOnly
+            className="bg-muted/40"
+          />
+        </div>
+
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Текст ответа</div>
+          <div className="min-h-[180px] rounded-lg border border-border bg-muted/30 p-3 text-sm text-foreground whitespace-pre-wrap">
+            {replyPreviewSupplier.latest_reply.body_text || "Текст ответа отсутствует."}
+          </div>
+        </div>
+      </div>
+    ) : (
+      <div className="py-10 text-center text-muted-foreground">
+        Ответ поставщика не найден.
+      </div>
+    )}
+
+    <div className="pt-4 border-t border-border">
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={() => setReplyPreviewSupplier(null)}
+      >
+        Закрыть
+      </Button>
+    </div>
+  </DialogContent>
+</Dialog>
     </div>
   );
 }
