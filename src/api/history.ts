@@ -28,6 +28,7 @@ export type HistoryListItem = {
   emails_sent: number;
   emails_failed: number;
   quotes_received_count?: number;
+  replies_count?: number;
 
   status: string;
   error_message?: string | null;

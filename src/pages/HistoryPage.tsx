@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   FileText,
   Mail,
+  MessageSquareText,
   RefreshCw,
   Search,
   Send,
@@ -1174,19 +1175,17 @@ const handleUploadQuoteFile = useCallback(
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-sm text-white/55">
-                      <AlertTriangle className="h-4 w-4" />
-                      <div>
-                        <div className="font-semibold text-white">
-                          {normalizeNumber(item.emails_failed)}
+                    <div className="flex items-center gap-2">
+                      <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+                      <div className="leading-tight">
+                        <div className="font-semibold text-foreground">
+                          {normalizeNumber(item.replies_count)}
                         </div>
-                        <div className="text-xs">
-                          {normalizeNumber(item.emails_failed) === 1
-                            ? "ошибка"
-                            : "ошибок"}
-                        </div>
-                      </div>
+                        <div className="text-xs text-muted-foreground">
+                          ответов
+                       </div>
                     </div>
+                </div>
 
                     <div>
                       <span
