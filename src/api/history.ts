@@ -81,6 +81,9 @@ export type ReplyAttachmentItem = {
 export type SupplierReplyItem = {
   id: number;
   source: "manual" | "inbound_email" | "system" | string;
+  direction?: "supplier" | "user" | "system" | string;
+  message_type?: "reply" | "quote" | "invoice" | "clarification" | "decline" | "manual_status" | string;
+  affects_result_status?: boolean;
   status: ReplyStatus | string;
   quote_source?: QuoteSource | string | null;
 

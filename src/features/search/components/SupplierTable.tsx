@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Supplier, SupplierReplyStatus } from "@/shared/types/rfq";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -40,6 +40,13 @@ import {
   ExternalLink
 } from "lucide-react";
 import { cn } from "@/shared/utils/utils";
+
+import {
+  downloadQuoteFile,
+  getResultReplies,
+  type ReplyAttachmentItem,
+  type SupplierReplyItem,
+} from "@/api/history";
 
 interface SupplierTableProps {
   suppliers: Supplier[];
@@ -98,6 +105,82 @@ function isValidEmail(email: string): boolean {
   const v = (email || "").trim();
   if (!v) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
+function formatDialogDate(value?: string | null): string {
+  if (!value) return "—";
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function replyDirectionLabel(reply: SupplierReplyItem): string {
+  const direction = String(reply.direction || "").toLowerCase();
+
+  if (direction === "user") return "Вы написали поставщику";
+  if (direction === "system") return "Системное событие";
+
+  if (reply.message_type === "quote" || reply.status === "quote_received") {
+    return "Поставщик прислал КП";
+  }
+
+  if (reply.message_type === "invoice") {
+    return "Поставщик прислал счёт";
+  }
+
+  if (reply.status === "clarification_requested") {
+    return "Поставщик запросил уточнение";
+  }
+
+  if (reply.status === "declined") {
+    return "Поставщик отказал";
+  }
+
+  return "Поставщик ответил";
+}
+
+function replyCardClass(reply: SupplierReplyItem): string {
+  const direction = String(reply.direction || "").toLowerCase();
+
+  if (direction === "user") {
+    return "border-blue-500/30 bg-blue-500/5";
+  }
+
+  if (direction === "system") {
+    return "border-muted-foreground/25 bg-muted/20";
+  }
+
+  if (reply.message_type === "quote" || reply.status === "quote_received") {
+    return "border-emerald-500/30 bg-emerald-500/5";
+  }
+
+  if (reply.status === "clarification_requested") {
+    return "border-blue-500/30 bg-blue-500/5";
+  }
+
+  if (reply.status === "declined") {
+    return "border-red-500/30 bg-red-500/5";
+  }
+
+  return "border-border bg-card/40";
+}
+
+function fileSizeLabel(sizeBytes?: number | null): string {
+  const value = Number(sizeBytes || 0);
+
+  if (!value) return "—";
+  if (value < 1024) return `${value} Б`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} КБ`;
+
+  return `${(value / 1024 / 1024).toFixed(1)} МБ`;
 }
 
 function SupplierStatusBadge({
@@ -411,27 +494,7 @@ function hasSupplierReply(supplier: Supplier): boolean {
   );
 }
 
-function formatReplyDate(value?: string | null): string {
-  if (!value) return "—";
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function replySourceLabel(source?: string | null): string {
-  if (source === "inbound_email") return "Входящее письмо";
-  if (source === "manual") return "Ручная отметка";
-  if (source === "system") return "Системное событие";
-  return "Ответ поставщика";
-}
 
 export function SupplierTable({
   suppliers,
@@ -448,8 +511,12 @@ export function SupplierTable({
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
     useState<Supplier | null>(null);
-  const [replyPreviewSupplier, setReplyPreviewSupplier] = useState<Supplier | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogSupplier, setDialogSupplier] = useState<Supplier | null>(null);
+  const [dialogReplies, setDialogReplies] = useState<SupplierReplyItem[]>([]);
+  const [dialogLoading, setDialogLoading] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   const handleShowError = (supplier: Supplier) => {
     setSelectedErrorSupplier(supplier);
@@ -495,6 +562,42 @@ export function SupplierTable({
 
   const quoteActionButtonBase =
   "inline-flex h-6 items-center justify-center rounded-md border px-2 text-[10px] font-semibold leading-none transition";
+
+async function openSupplierDialog(supplier: Supplier) {
+  if (!supplier.backend_result_id) return;
+
+  setDialogSupplier(supplier);
+  setDialogOpen(true);
+  setDialogLoading(true);
+  setDialogError(null);
+  setDialogReplies([]);
+
+  try {
+    const response = await getResultReplies(supplier.backend_result_id);
+    setDialogReplies(Array.isArray(response.items) ? response.items : []);
+  } catch (e) {
+    setDialogError(
+      e instanceof Error ? e.message : "Не удалось загрузить диалог"
+    );
+  } finally {
+    setDialogLoading(false);
+  }
+}
+
+async function openDialogAttachment(file: ReplyAttachmentItem) {
+  try {
+    const result = await downloadQuoteFile(file.id);
+
+    const url = URL.createObjectURL(result.blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    setDialogError(
+      e instanceof Error ? e.message : "Не удалось открыть файл"
+    );
+  }
+}
 
   return (
     <div className="space-y-4">
@@ -858,13 +961,13 @@ const uploadQuoteDisabled =
             </button>
           ) : null}
 
-          {hasSupplierReply(supplier) ? (
+          {backendId ? (
             <button
               type="button"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                setReplyPreviewSupplier(supplier);
+                openSupplierDialog(supplier);
               }}
               className="
                 inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
@@ -872,10 +975,10 @@ const uploadQuoteDisabled =
                 text-[10px] font-semibold text-sky-200
                 transition hover:bg-sky-500 hover:text-white
               "
-              title="Открыть ответ поставщика"
+              title="Открыть диалог с поставщиком"
             >
               <MessageSquareText className="h-3.5 w-3.5" />
-              Ответ
+              Диалог
             </button>
           ) : null}
 
@@ -962,87 +1065,147 @@ const uploadQuoteDisabled =
         onOpenChange={setErrorModalOpen}
         supplier={selectedErrorSupplier}
       />
-<Dialog
-  open={!!replyPreviewSupplier}
-  onOpenChange={(open) => {
-    if (!open) setReplyPreviewSupplier(null);
-  }}
->
-  <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col [&_[data-radix-dialog-close]]:hidden">
-    <DialogHeader>
-      <DialogTitle className="text-xl">Ответ поставщика</DialogTitle>
-    </DialogHeader>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col bg-card border-border text-foreground [&_[data-radix-dialog-close]]:hidden">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Диалог с поставщиком</DialogTitle>
+          </DialogHeader>
 
-    {replyPreviewSupplier?.latest_reply ? (
-      <div className="flex-1 overflow-auto space-y-4">
-        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <div className="text-xs text-muted-foreground">Поставщик</div>
-              <div className="mt-1 font-medium text-foreground">
-                {replyPreviewSupplier.supplier_name || "—"}
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <div className="text-xs text-muted-foreground">Поставщик</div>
+                <div className="mt-1 font-medium text-foreground">
+                  {dialogSupplier?.supplier_name || "—"}
+                </div>
               </div>
-            </div>
 
-            <div>
-              <div className="text-xs text-muted-foreground">Источник</div>
-              <div className="mt-1 font-medium text-foreground">
-                {replySourceLabel(replyPreviewSupplier.latest_reply.source)}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs text-muted-foreground">От</div>
-              <div className="mt-1 font-medium text-foreground">
-                {replyPreviewSupplier.latest_reply.from_email || "—"}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs text-muted-foreground">Дата</div>
-              <div className="mt-1 font-medium text-foreground">
-                {formatReplyDate(
-                  replyPreviewSupplier.latest_reply.received_at ||
-                    replyPreviewSupplier.latest_reply.created_at
-                )}
+              <div>
+                <div className="text-xs text-muted-foreground">Контакт</div>
+                <div className="mt-1 font-medium text-foreground break-all">
+                  {dialogSupplier?.contact || "—"}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Тема</div>
-          <Input
-            value={replyPreviewSupplier.latest_reply.subject || "—"}
-            readOnly
-            className="bg-muted/40"
-          />
-        </div>
+          {dialogError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {dialogError}
+            </div>
+          )}
 
-        <div>
-          <div className="mb-1 text-xs text-muted-foreground">Текст ответа</div>
-          <div className="min-h-[180px] rounded-lg border border-border bg-muted/30 p-3 text-sm text-foreground whitespace-pre-wrap">
-            {replyPreviewSupplier.latest_reply.body_text || "Текст ответа отсутствует."}
+          <div className="flex-1 overflow-auto space-y-3 pr-1">
+            {dialogLoading ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                Загружаем диалог...
+              </div>
+            ) : dialogReplies.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                По этому поставщику пока нет сообщений.
+              </div>
+            ) : (
+              dialogReplies.map((reply) => {
+                const attachments = Array.isArray(reply.attachments)
+                  ? reply.attachments
+                  : [];
+
+                return (
+                  <div
+                    key={reply.id}
+                    className={cn(
+                      "rounded-xl border p-4",
+                      replyCardClass(reply)
+                    )}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <MessageSquareText className="w-4 h-4 text-muted-foreground" />
+                          <div className="font-semibold text-sm">
+                            {replyDirectionLabel(reply)}
+                          </div>
+                        </div>
+
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {formatDialogDate(reply.received_at || reply.created_at)}
+                        </div>
+                      </div>
+
+                      {attachments.length > 0 && (
+                        <div className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+                          <FileCheck2 className="w-3 h-3 mr-1" />
+                          Файлов: {attachments.length}
+                        </div>
+                      )}
+                    </div>
+
+                    {reply.from_email && (
+                      <div className="mt-3 text-xs text-muted-foreground break-all">
+                        От: {reply.from_name ? `${reply.from_name} · ` : ""}
+                        {reply.from_email}
+                      </div>
+                    )}
+
+                    {reply.subject && (
+                      <div className="mt-2 rounded-md border border-border/70 bg-background/30 px-3 py-2 text-xs text-muted-foreground break-all">
+                        {reply.subject}
+                      </div>
+                    )}
+
+                    {reply.body_text && (
+                      <div className="mt-3 whitespace-pre-wrap rounded-lg border border-border/70 bg-background/40 p-3 text-sm leading-relaxed">
+                        {reply.body_text}
+                      </div>
+                    )}
+
+                    {attachments.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {attachments.map((file) => (
+                          <div
+                            key={file.id}
+                            className="flex flex-col gap-2 rounded-lg border border-border/70 bg-background/40 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">
+                                {file.original_filename || `Файл ${file.id}`}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {file.detected_type || "file"} · {fileSizeLabel(file.size_bytes)}
+                              </div>
+                            </div>
+
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 shrink-0 px-2 text-[11px]"
+                              onClick={() => openDialogAttachment(file)}
+                            >
+                              <ExternalLink className="w-3 h-3 mr-1" />
+                              Открыть
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
-        </div>
-      </div>
-    ) : (
-      <div className="py-10 text-center text-muted-foreground">
-        Ответ поставщика не найден.
-      </div>
-    )}
 
-    <div className="pt-4 border-t border-border">
-      <Button
-        variant="outline"
-        className="w-full"
-        onClick={() => setReplyPreviewSupplier(null)}
-      >
-        Закрыть
-      </Button>
-    </div>
-  </DialogContent>
-</Dialog>
+          <div className="pt-4 border-t border-border">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setDialogOpen(false)}
+            >
+              Закрыть
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
