@@ -47,6 +47,7 @@ export interface Supplier {
   reply_status?: SupplierReplyStatus | string;
   quote_source?: SupplierQuoteSource | string | null;
   quote_file_count?: number;
+  supplier_replies_count?: number;
   last_reply_at?: Date | null;
   latest_reply?: SupplierLatestReply | null;
 }

@@ -372,6 +372,7 @@ export default function HistoryPage() {
         limit: PAGE_LIMIT,
         offset: 0,
         outcome,
+        period,
         q: searchQuery.trim() || undefined,
       });
 
@@ -391,7 +392,7 @@ export default function HistoryPage() {
     } finally {
       setLoadingFirst(false);
     }
-  }, [outcome, searchQuery, toast]);
+  }, [outcome, period, searchQuery, toast]);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadFirstPage(), loadStats()]);
@@ -406,6 +407,7 @@ export default function HistoryPage() {
         limit: PAGE_LIMIT,
         offset,
         outcome,
+        period,
         q: searchQuery.trim() || undefined,
       });
 
@@ -425,7 +427,7 @@ export default function HistoryPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, loadingMore, loadingFirst, offset, outcome, searchQuery, toast]);
+  }, [hasMore, loadingMore, loadingFirst, offset, outcome, period, searchQuery, toast]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -496,6 +498,7 @@ export default function HistoryPage() {
 reply_status: r?.reply_status || "no_reply",
 quote_source: r?.quote_source || null,
 quote_file_count: normalizeNumber(r?.quote_file_count),
+supplier_replies_count: normalizeNumber(r?.supplier_replies_count),
 last_reply_at: r?.last_reply_at ? new Date(r.last_reply_at) : null,
 latest_reply: r?.latest_reply || null,
         } as Supplier;
@@ -919,7 +922,13 @@ const handleUploadQuoteFile = useCallback(
                 <button
                   key={p.value}
                   type="button"
-                  onClick={() => setPeriod(p.value)}
+                  onClick={() => {
+                    setItems([]);
+                    setTotal(0);
+                    setOffset(0);
+                    setHasMore(true);
+                    setPeriod(p.value);
+                  }} 
                   className={cn(
                     "h-9 rounded-full border px-4 text-sm transition",
                     period === p.value
@@ -1010,7 +1019,13 @@ const handleUploadQuoteFile = useCallback(
                 <button
                   key={item.value}
                   type="button"
-                  onClick={() => setOutcome(item.value)}
+                  onClick={() => {
+                    setItems([]);
+                    setTotal(0);
+                    setOffset(0);
+                    setHasMore(true);
+                    setOutcome(item.value);
+                  }} 
                   className={cn(
                     "inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm transition",
                     active

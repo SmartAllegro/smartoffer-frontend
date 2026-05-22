@@ -184,17 +184,10 @@ function fileSizeLabel(sizeBytes?: number | null): string {
 }
 
 function hasSupplierDialog(supplier: Supplier): boolean {
-  const latestReply = supplier.latest_reply;
-
-  if (!supplier.backend_result_id) return false;
-
-  if (latestReply) return true;
-
-  if (Number(supplier.quote_file_count || 0) > 0) return true;
-
-  if (supplier.reply_status && supplier.reply_status !== "no_reply") return true;
-
-  return false;
+  return Boolean(
+    supplier.backend_result_id &&
+    Number(supplier.supplier_replies_count || 0) > 0
+  );
 }
 
 function SupplierStatusBadge({

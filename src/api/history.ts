@@ -129,6 +129,9 @@ export type HistoryDetailResult = {
   reply_status?: ReplyStatus | string;
   quote_source?: QuoteSource | string | null;
   quote_file_count?: number;
+
+  supplier_replies_count?: number;
+
   last_reply_at?: string | null;
   latest_reply?: SupplierReplyItem | null;
 };
@@ -219,6 +222,7 @@ export async function listHistory(
     limit?: number;
     offset?: number;
     outcome?: HistoryOutcome;
+    period?: HistoryPeriod;
     q?: string;
   } = {}
 ): Promise<HistoryListResponse> {
@@ -226,6 +230,7 @@ export async function listHistory(
     limit: params.limit ?? 50,
     offset: params.offset ?? 0,
     outcome: params.outcome ?? "all",
+    period: params.period ?? "30d",
     q: params.q,
   });
 
