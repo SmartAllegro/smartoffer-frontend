@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  CalendarDays,
   CheckCircle2,
   FileText,
   Mail,
@@ -14,12 +15,19 @@ import {
   RefreshCw,
   Search,
   Send,
+  StickyNote,
   Users,
   XCircle,
 } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
+import { Calendar } from "@/shared/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/shared/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -38,17 +46,20 @@ import {
   getHistoryStats,
   getResultReplies,
   listHistory,
+  listHistoryNotes,
+  saveHistoryNote,
   setJobDealDone,
+  setJobDeliveryDone,
   setQuoteReceived,
   updateResultReplyStatus,
   uploadQuoteFile,
+  type DeliveryNoteItem,
   type HistoryListItem,
   type HistoryOutcome,
   type HistoryPeriod,
   type HistoryStatsResponse,
   type ReplyStatus,
 } from "@/api/history";
-
 const PAGE_LIMIT = 50;
 
 const PERIODS: Array<{ value: HistoryPeriod; label: string }> = [
@@ -72,6 +83,465 @@ function formatDateTime(value: string | Date): string {
 
 function formatUpdatedAt(): string {
   return format(new Date(), "сегодня, HH:mm", { locale: ru });
+}
+
+function parseDeliveryDate(value?: string | null): Date | undefined {
+  if (!value) return undefined;
+
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) return undefined;
+
+  return new Date(year, month - 1, day);
+}
+
+function toDateOnlyString(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatDeliveryDate(value?: string | null): string {
+  const date = parseDeliveryDate(value);
+
+  if (!date) return "Дата поставки";
+
+  return format(date, "dd.MM.yyyy", { locale: ru });
+}
+
+function todayDateOnlyString(): string {
+  return toDateOnlyString(new Date());
+}
+
+function isDeliveryOverdue(item: HistoryListItem): boolean {
+  if (!item.deal_done) return false;
+  if (!item.delivery_date) return false;
+  if (item.delivery_done) return false;
+
+  return item.delivery_date < todayDateOnlyString();
+}
+
+function deliveryStatusLabel(item: HistoryListItem): string | null {
+  if (!item.deal_done || !item.delivery_date) return null;
+
+  if (item.delivery_done) return "Поставка состоялась";
+  if (isDeliveryOverdue(item)) return "Поставка просрочена";
+
+  return "Поставка ожидается";
+}
+
+function formatCalendarTitle(value: string): string {
+  const date = parseDeliveryDate(value) || new Date();
+
+  return format(date, "d MMMM yyyy", { locale: ru });
+}
+
+function formatShortDate(value: string): string {
+  const date = parseDeliveryDate(value) || new Date();
+
+  return format(date, "dd.MM.yyyy", { locale: ru });
+}
+
+function isSameDateOnly(a: Date, b: Date): boolean {
+  return toDateOnlyString(a) === toDateOnlyString(b);
+}
+
+
+type DeliveryNoteMode = "day" | "all";
+
+
+function getDeliveryItemsByDate(items: HistoryListItem[]) {
+  const map = new Map<string, HistoryListItem[]>();
+
+  for (const item of items) {
+    const deliveryDate = item.delivery_date || null;
+
+    if (!item.deal_done || !deliveryDate) continue;
+
+    const list = map.get(deliveryDate) || [];
+    list.push(item);
+    map.set(deliveryDate, list);
+  }
+
+  return map;
+}
+
+function DeliveryCalendarPanel({
+  items,
+  selectedDate,
+  note,
+  noteMode,
+  allNotes,
+  notesLoading,
+  onSelectDate,
+  onNoteChange,
+  onNoteModeChange,
+  onSaveNote,
+  onOpenNote,
+  onOpenItem,
+  onToggleDelivery,
+}: {
+  items: HistoryListItem[];
+  selectedDate: string;
+  note: string;
+  noteMode: DeliveryNoteMode;
+  allNotes: DeliveryNoteItem[];
+  notesLoading: boolean;
+  onSelectDate: (value: string) => void;
+  onNoteChange: (value: string) => void;
+  onNoteModeChange: (value: DeliveryNoteMode) => void;
+  onSaveNote: () => void;
+  onOpenNote: (dateValue: string) => void;
+  onOpenItem: (item: HistoryListItem) => void;
+  onToggleDelivery: (item: HistoryListItem, next: boolean) => void;
+}) {
+
+  const deliveryItemsByDate = useMemo(() => getDeliveryItemsByDate(items), [items]);
+
+  const deliveryDatesSet = useMemo(() => {
+    return new Set(Array.from(deliveryItemsByDate.keys()));
+  }, [deliveryItemsByDate]);
+
+  const overdueItems = useMemo(
+  () => items.filter((item) => isDeliveryOverdue(item)),
+  [items]
+);
+
+const selectedBaseItems = deliveryItemsByDate.get(selectedDate) || [];
+
+const selectedItems = useMemo(() => {
+  const map = new Map<number, HistoryListItem>();
+
+  for (const item of selectedBaseItems) {
+    map.set(item.id, item);
+  }
+
+  for (const item of overdueItems) {
+    map.set(item.id, item);
+  }
+
+  return Array.from(map.values());
+}, [selectedBaseItems, overdueItems]);
+
+const selectedDateObj = parseDeliveryDate(selectedDate) || new Date();
+const [calendarMonth, setCalendarMonth] = useState<Date>(selectedDateObj);
+
+useEffect(() => {
+  setCalendarMonth(selectedDateObj);
+}, [selectedDate]);
+
+const overdueDatesSet = useMemo(() => {
+  return new Set(overdueItems.map((item) => item.delivery_date).filter(Boolean));
+}, [overdueItems]);
+
+  return (
+    <aside className="space-y-4">
+      <section
+        className="
+          rounded-2xl border border-[#2d4059] bg-[#111827]
+          p-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]
+        "
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <CalendarDays className="h-4 w-4 text-[#ffbf00]" />
+              Календарь поставок
+            </div>
+            <div className="mt-1 text-xs text-white/45">
+              Дни с поставками подсвечены
+            </div>
+          </div>
+
+          <div
+            className="
+              rounded-lg border border-emerald-400/20 bg-emerald-500/10
+              px-2.5 py-1 text-xs font-semibold text-emerald-300
+            "
+          >
+            {deliveryDatesSet.size}
+          </div>
+        </div>
+
+        <Calendar
+          mode="single"
+          selected={selectedDateObj}
+          month={calendarMonth}
+          onMonthChange={setCalendarMonth}
+          onSelect={(date) => {
+            if (!date) return;
+
+            const value = toDateOnlyString(date);
+            onSelectDate(value);
+            setCalendarMonth(date);
+        }}
+          locale={ru}
+          modifiers={{
+            hasDelivery: (date) => {
+              const value = toDateOnlyString(date);
+              return deliveryDatesSet.has(value) && !overdueDatesSet.has(value);
+            },
+            overdueDelivery: (date) => overdueDatesSet.has(toDateOnlyString(date)),
+            selectedDay: (date) => isSameDateOnly(date, selectedDateObj),
+          }}
+          modifiersClassNames={{
+            hasDelivery:
+              "relative after:absolute after:bottom-1 after:left-1/2 after:h-1 after:w-1 after:-translate-x-1/2 after:rounded-full after:bg-emerald-300",
+            overdueDelivery:
+              "relative after:absolute after:bottom-1 after:left-1/2 after:h-1.5 after:w-1.5 after:-translate-x-1/2 after:rounded-full after:bg-orange-400",
+            selectedDay:
+              "!bg-[#ffbf00] !text-[#2b2100] hover:!bg-[#ffbf00] hover:!text-[#2b2100]",
+}}
+          className="rounded-xl bg-[#0b1220] p-2 text-white"
+          classNames={{
+            months: "flex flex-col space-y-3",
+            month: "space-y-3",
+            caption:
+              "relative flex items-center justify-center px-8 py-1 text-sm font-semibold text-white",
+            caption_label: "text-sm font-semibold text-white",
+            nav: "absolute inset-x-0 top-1 flex items-center justify-between px-1",
+            nav_button:
+              "flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-[#111a2a] text-white/70 transition hover:border-[#ffbf00]/40 hover:bg-[#182235] hover:text-[#ffbf00]",
+            nav_button_previous: "",
+            nav_button_next: "",
+            table: "w-full border-collapse",
+            head_row: "flex",
+            head_cell:
+              "flex h-8 w-9 items-center justify-center text-[11px] font-medium text-white/40",
+            row: "mt-1 flex w-full",
+            cell:
+              "relative flex h-9 w-9 items-center justify-center p-0 text-center text-sm",
+            day:
+              "relative flex h-8 w-8 items-center justify-center rounded-lg text-sm text-white/80 transition hover:bg-[#182235] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#ffbf00]/35",
+            day_selected:
+              "!bg-[#ffbf00] !text-[#2b2100] hover:!bg-[#ffbf00] hover:!text-[#2b2100]",
+            day_today:
+              "border border-emerald-400/60 bg-emerald-500/10 text-emerald-200",
+            day_outside: "text-white/20 opacity-50",
+            day_disabled: "text-white/20 opacity-40",
+            day_range_middle: "bg-[#182235] text-white",
+            day_hidden: "invisible",
+          }}
+        />
+
+        <div className="mt-4 rounded-xl border border-white/10 bg-[#0b1220] p-3">
+          <div className="text-xs text-white/45">Выбранный день</div>
+          <div className="mt-1 text-sm font-semibold text-white">
+            {formatCalendarTitle(selectedDate)}
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {selectedItems.length === 0 ? (
+  <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-3 text-xs text-white/45">
+    На эту дату поставок нет.
+  </div>
+) : (
+  selectedItems.map((item) => {
+    const overdue = isDeliveryOverdue(item);
+    const status = deliveryStatusLabel(item);
+    const isForeignOverdue = overdue && item.delivery_date !== selectedDate;
+
+    return (
+      <div
+        key={item.id}
+        className={cn(
+          "rounded-lg border px-3 py-2 transition",
+          overdue
+            ? "border-orange-400/25 bg-orange-500/[0.08]"
+            : "border-emerald-400/15 bg-emerald-500/[0.08]"
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => onOpenItem(item)}
+          className="block w-full text-left"
+        >
+          <div className="truncate text-xs font-semibold text-white">
+            {displayTitle(item)}
+          </div>
+
+          <div className="mt-1 truncate text-[11px] text-white/45">
+            {displaySubtitle(item)}
+          </div>
+
+          <div
+            className={cn(
+              "mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-semibold",
+              overdue
+                ? "bg-orange-500/15 text-orange-300"
+                : item.delivery_done
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : "bg-[#ffbf00]/15 text-[#ffdf73]"
+            )}
+          >
+            {status}
+          </div>
+
+          {isForeignOverdue && (
+            <div className="mt-1 text-[11px] text-orange-300/80">
+              Просрочено с {formatShortDate(item.delivery_date || selectedDate)}
+            </div>
+          )}
+        </button>
+
+        <label
+          className="
+            mt-2 flex cursor-pointer items-center gap-2
+            rounded-lg border border-white/10 bg-[#0b1220]/70
+            px-2 py-1.5 text-[11px] text-white/70
+            hover:border-[#ffbf00]/35
+          "
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Checkbox
+            checked={!!item.delivery_done}
+            onCheckedChange={(checked) =>
+              onToggleDelivery(item, checked === true)
+            }
+            className="
+              h-4 w-4
+              border-[#4a5568]
+              data-[state=checked]:border-emerald-400
+              data-[state=checked]:bg-emerald-400
+              data-[state=checked]:text-[#052e22]
+            "
+            aria-label="Поставка состоялась"
+          />
+
+          <span>Поставка состоялась</span>
+        </label>
+      </div>
+    );
+  })
+)}
+          </div>
+        </div>
+      </section>
+
+      <section
+  className="
+    rounded-2xl border border-[#2d4059] bg-[#111827]
+    p-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]
+  "
+>
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="flex items-center gap-2 text-sm font-semibold text-white">
+        <StickyNote className="h-4 w-4 text-[#ffbf00]" />
+        Заметки
+      </div>
+
+      <div className="mt-1 text-xs text-white/45">
+        {noteMode === "day"
+          ? formatShortDate(selectedDate)
+          : `${allNotes.length} сохранено`}
+      </div>
+    </div>
+
+    <div className="flex rounded-lg border border-white/10 bg-[#0b1220] p-1">
+      <button
+        type="button"
+        onClick={() => onNoteModeChange("day")}
+        className={cn(
+          "h-7 rounded-md px-3 text-xs font-semibold transition",
+          noteMode === "day"
+            ? "bg-[#ffbf00] text-[#2b2100]"
+            : "text-white/55 hover:bg-white/10 hover:text-white"
+        )}
+      >
+        День
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onNoteModeChange("all")}
+        className={cn(
+          "h-7 rounded-md px-3 text-xs font-semibold transition",
+          noteMode === "all"
+            ? "bg-[#ffbf00] text-[#2b2100]"
+            : "text-white/55 hover:bg-white/10 hover:text-white"
+        )}
+      >
+        Все
+      </button>
+    </div>
+  </div>
+
+  {noteMode === "day" ? (
+    <>
+      <textarea
+        value={note}
+        onChange={(event) => onNoteChange(event.target.value)}
+        placeholder="Например: уточнить срок, проверить оплату, связаться с поставщиком..."
+        className="
+          mt-3 min-h-[128px] w-full resize-none rounded-xl
+          border border-white/10 bg-[#0b1220] px-3 py-2
+          text-sm text-white placeholder:text-white/30
+          focus:border-[#ffbf00]/45 focus:outline-none focus:ring-2 focus:ring-[#ffbf00]/20
+        "
+      />
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onSaveNote}
+        className="
+          mt-3 h-9 w-full border-[#2f3a4d] bg-[#151f2d]
+          text-white hover:border-[#ffbf00] hover:bg-[#ffbf00]
+          hover:text-[#2b2100]
+        "
+      >
+        Сохранить заметку
+      </Button>
+    </>
+  ) : (
+    <div className="mt-3 max-h-[280px] space-y-2 overflow-y-auto pr-1">
+      {notesLoading ? (
+        <div className="rounded-xl border border-white/10 bg-[#0b1220] px-3 py-4 text-xs text-white/45">
+          Загружаем заметки…
+        </div>
+      ) : allNotes.length === 0 ? (
+        <div className="rounded-xl border border-white/10 bg-[#0b1220] px-3 py-4 text-xs text-white/45">
+          Сохранённых заметок пока нет.
+        </div>
+      ) : (
+        allNotes.map((item) => (
+          <button
+            key={item.date}
+            type="button"
+            onClick={() => onOpenNote(item.date)}
+            className={cn(
+              "block w-full rounded-xl border px-3 py-2 text-left transition",
+              item.date === selectedDate
+                ? "border-[#ffbf00]/40 bg-[#ffbf00]/[0.08]"
+                : "border-white/10 bg-[#0b1220] hover:border-[#ffbf00]/30 hover:bg-[#ffbf00]/[0.05]"
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-[#ffdf73]">
+                {formatShortDate(item.date)}
+              </div>
+
+              {item.date === selectedDate && (
+                <div className="rounded-md bg-[#ffbf00]/15 px-2 py-0.5 text-[10px] font-semibold text-[#ffdf73]">
+                  выбран
+                </div>
+              )}
+            </div>
+
+            <div className="mt-1 line-clamp-3 text-xs leading-5 text-white/70">
+              {item.body}
+            </div>
+          </button>
+        ))
+      )}
+    </div>
+  )}
+</section>
+    </aside>
+  );
 }
 
 function displayTitle(item: HistoryListItem): string {
@@ -330,6 +800,14 @@ export default function HistoryPage() {
   const [emailSubject, setEmailSubject] = useState<string>("");
   const [emailBody, setEmailBody] = useState<string>("");
 
+  const [selectedDeliveryDate, setSelectedDeliveryDate] = useState(() =>
+    toDateOnlyString(new Date())
+  );
+  const [deliveryNote, setDeliveryNote] = useState("");
+  const [deliveryNoteMode, setDeliveryNoteMode] = useState<DeliveryNoteMode>("day");
+  const [allDeliveryNotes, setAllDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+
   const selectedFilterCount = useMemo(() => {
     if (outcome === "all") return total || getFilterCount(stats, "all");
     return getFilterCount(stats, outcome);
@@ -342,6 +820,25 @@ export default function HistoryPage() {
   const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
 
   const canShowEmail = (emailSubject || "").trim() || (emailBody || "").trim();
+
+
+const loadDeliveryNotes = useCallback(async () => {
+  setNotesLoading(true);
+
+  try {
+    const res = await listHistoryNotes();
+
+    setAllDeliveryNotes(Array.isArray(res.items) ? res.items : []);
+  } catch (e) {
+    toast({
+      title: "Не удалось загрузить заметки",
+      description: e instanceof Error ? e.message : "Ошибка",
+      variant: "destructive",
+    });
+  } finally {
+    setNotesLoading(false);
+  }
+}, [toast]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -441,6 +938,50 @@ export default function HistoryPage() {
     loadStats().catch(() => {});
   }, [loadStats]);
 
+    useEffect(() => {
+    loadDeliveryNotes().catch(() => {});
+  }, [loadDeliveryNotes]);
+
+  useEffect(() => {
+    const found = allDeliveryNotes.find(
+      (item) => item.date === selectedDeliveryDate
+    );
+
+    setDeliveryNote(found?.body || "");
+  }, [selectedDeliveryDate, allDeliveryNotes]);
+
+  async function handleSaveDeliveryNote() {
+  const body = deliveryNote.trim();
+
+  try {
+    await saveHistoryNote({
+      date: selectedDeliveryDate,
+      body,
+    });
+
+    await loadDeliveryNotes();
+
+    toast({
+      title: body ? "Заметка сохранена" : "Заметка удалена",
+      description: formatShortDate(selectedDeliveryDate),
+    });
+  } catch (e) {
+    toast({
+      title: "Не удалось сохранить заметку",
+      description: e instanceof Error ? e.message : "Ошибка",
+      variant: "destructive",
+    });
+  }
+}
+
+  function handleOpenDeliveryNote(dateValue: string) {
+    const found = allDeliveryNotes.find((item) => item.date === dateValue);
+
+    setSelectedDeliveryDate(dateValue);
+    setDeliveryNote(found?.body || "");
+    setDeliveryNoteMode("day");
+  }
+
   async function openDetail(item: HistoryListItem) {
     const jid = item.id;
 
@@ -517,52 +1058,102 @@ latest_reply: r?.latest_reply || null,
     }
   }
 
-  async function handleToggleDeal(item: HistoryListItem, next: boolean) {
-    const previousItems = items;
+  async function handleToggleDeal(
+  item: HistoryListItem,
+  next: boolean,
+  deliveryDate: string | null = item.delivery_date || null
+) {
+  const previousItems = items;
+
+  setItems((current) =>
+    current.map((x) =>
+      x.id === item.id
+        ? {
+            ...x,
+            deal_done: next,
+            deal_done_at: next ? new Date().toISOString() : null,
+            delivery_date: next ? deliveryDate : null,
+            history_outcome: next
+              ? "deal"
+              : normalizeNumber(x.emails_sent) > 0
+                ? "sent"
+                : "not_sent",
+          }
+        : x
+    )
+  );
+
+  try {
+    const res = await setJobDealDone(item.id, {
+      deal_done: next,
+      delivery_date: next ? deliveryDate : null,
+    });
 
     setItems((current) =>
       current.map((x) =>
         x.id === item.id
           ? {
               ...x,
-              deal_done: next,
-              deal_done_at: next ? new Date().toISOString() : null,
-              history_outcome: next
-                ? "deal"
-                : normalizeNumber(x.emails_sent) > 0
-                  ? "sent"
-                  : "not_sent",
+              deal_done: res.deal_done,
+              deal_done_at: res.deal_done_at,
+              delivery_date: res.delivery_date || null,
+              history_outcome: res.history_outcome,
             }
           : x
       )
     );
 
-    try {
-      const res = await setJobDealDone(item.id, next);
+    await loadStats();
+  } catch (e) {
+    setItems(previousItems);
 
-      setItems((current) =>
-        current.map((x) =>
-          x.id === item.id
-            ? {
-                ...x,
-                deal_done: res.deal_done,
-                deal_done_at: res.deal_done_at,
-                history_outcome: res.history_outcome,
-              }
-            : x
-        )
-      );
-
-      await loadStats();
-    } catch (e) {
-      setItems(previousItems);
-      toast({
-        title: "Не удалось сохранить отметку сделки",
-        description: e instanceof Error ? e.message : "Ошибка",
-        variant: "destructive",
-      });
-    }
+    toast({
+      title: "Не удалось сохранить сделку",
+      description: e instanceof Error ? e.message : "Ошибка",
+      variant: "destructive",
+    });
   }
+}
+
+async function handleToggleDelivery(item: HistoryListItem, next: boolean) {
+  const previousItems = items;
+
+  setItems((current) =>
+    current.map((x) =>
+      x.id === item.id
+        ? {
+            ...x,
+            delivery_done: next,
+            delivery_done_at: next ? new Date().toISOString() : null,
+          }
+        : x
+    )
+  );
+
+  try {
+    const res = await setJobDeliveryDone(item.id, next);
+
+    setItems((current) =>
+      current.map((x) =>
+        x.id === item.id
+          ? {
+              ...x,
+              delivery_done: res.delivery_done,
+              delivery_done_at: res.delivery_done_at,
+            }
+          : x
+      )
+    );
+  } catch (e) {
+    setItems(previousItems);
+
+    toast({
+      title: "Не удалось сохранить статус поставки",
+      description: e instanceof Error ? e.message : "Ошибка",
+      variant: "destructive",
+    });
+  }
+}
 
   const handleToggleQuote = useCallback(
     async (supplierId: string, backendResultId: number, next: boolean) => {
@@ -848,7 +1439,7 @@ const handleUploadQuoteFile = useCallback(
 
   return (
     <div className="min-h-screen bg-background text-white">
-      <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-[1640px] px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <Link
@@ -907,6 +1498,25 @@ const handleUploadQuoteFile = useCallback(
             Обновить
           </Button>
         </div>
+
+<div className="mt-5 grid grid-cols-1 gap-5 2xl:grid-cols-[320px_minmax(0,1280px)] 2xl:items-start 2xl:justify-center">
+  <DeliveryCalendarPanel
+    items={items}
+    selectedDate={selectedDeliveryDate}
+    note={deliveryNote}
+    noteMode={deliveryNoteMode}
+    allNotes={allDeliveryNotes}
+    notesLoading={notesLoading}
+    onSelectDate={setSelectedDeliveryDate}
+    onNoteChange={setDeliveryNote}
+    onNoteModeChange={setDeliveryNoteMode}
+    onSaveNote={handleSaveDeliveryNote}
+    onOpenNote={handleOpenDeliveryNote}
+    onOpenItem={openDetail}
+    onToggleDelivery={handleToggleDelivery}
+  />
+
+  <div className="min-w-0 w-full max-w-7xl">
 
         <section className="rounded-2xl border border-[#2d4059] bg-[#111827] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1222,27 +1832,139 @@ const handleUploadQuoteFile = useCallback(
                     </div>
 
                     <div
-                      className="flex items-center gap-3"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <Checkbox
-                        checked={dealChecked}
-                        onCheckedChange={(checked) =>
-                          handleToggleDeal(item, checked === true)
-                        }
-                        className="
-                          h-5 w-5
-                          border-[#4a5568]
-                          data-[state=checked]:border-[#ffbf00]
-                          data-[state=checked]:bg-[#ffbf00]
-                          data-[state=checked]:text-[#2b2100]
-                        "
-                        aria-label="Сделка состоялась"
-                      />
-                      <span className="text-sm text-white/70">
-                        Сделка состоялась
-                      </span>
-                    </div>
+  className="flex flex-col gap-2"
+  onClick={(event) => event.stopPropagation()}
+>
+  <label className="flex items-center gap-3">
+    <Checkbox
+      checked={dealChecked}
+      onCheckedChange={(checked) =>
+        handleToggleDeal(item, checked === true, item.delivery_date || null)
+      }
+      className="
+        h-5 w-5
+        border-[#4a5568]
+        data-[state=checked]:border-[#ffbf00]
+        data-[state=checked]:bg-[#ffbf00]
+        data-[state=checked]:text-[#2b2100]
+      "
+      aria-label="Сделка состоялась"
+    />
+
+    <span className="text-sm text-white/70">
+      Сделка состоялась
+    </span>
+  </label>
+
+  <Popover>
+    <PopoverTrigger asChild>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={!dealChecked}
+        className={cn(
+          "h-8 w-[150px] justify-between rounded-lg px-2.5 text-xs",
+          "border border-white/10 bg-[#0f1724] text-white",
+          "shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]",
+          "hover:border-[#ffbf00]/45 hover:bg-[#131d2d] hover:text-white",
+          "focus-visible:ring-2 focus-visible:ring-[#ffbf00]/35",
+          "disabled:cursor-not-allowed disabled:opacity-40",
+          item.delivery_date &&
+            "border-[#ffbf00]/35 bg-[rgba(255,191,0,0.08)] text-[#ffdf73]"
+        )}
+        title="Дата поставки"
+      >
+        <span className="truncate">
+          {formatDeliveryDate(item.delivery_date)}
+        </span>
+
+        <CalendarDays className="h-3.5 w-3.5 shrink-0 text-white/55" />
+      </Button>
+    </PopoverTrigger>
+
+    <PopoverContent
+      align="start"
+      side="bottom"
+      sideOffset={8}
+      className="
+        z-50 w-auto rounded-2xl border border-[#2d4059]
+        bg-[#0b1220] p-3 text-white
+        shadow-[0_20px_70px_rgba(0,0,0,0.65)]
+      "
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Calendar
+        mode="single"
+        selected={parseDeliveryDate(item.delivery_date)}
+        onSelect={(selectedDate) => {
+          if (!selectedDate) return;
+
+          handleToggleDeal(item, true, toDateOnlyString(selectedDate));
+        }}
+        locale={ru}
+        initialFocus
+        className="rounded-xl bg-[#0b1220] text-white"
+        classNames={{
+          months: "flex flex-col space-y-3",
+          month: "space-y-3",
+          caption:
+            "relative flex items-center justify-center px-8 py-1 text-sm font-semibold text-white",
+          caption_label: "text-sm font-semibold text-white",
+          nav: "absolute inset-x-0 top-1 flex items-center justify-between px-1",
+          nav_button:
+            "flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-[#111a2a] text-white/70 transition hover:border-[#ffbf00]/40 hover:bg-[#182235] hover:text-[#ffbf00]",
+          nav_button_previous: "",
+          nav_button_next: "",
+          table: "w-full border-collapse",
+          head_row: "flex",
+          head_cell:
+            "flex h-8 w-9 items-center justify-center text-[11px] font-medium text-white/40",
+          row: "mt-1 flex w-full",
+          cell:
+            "relative flex h-9 w-9 items-center justify-center p-0 text-center text-sm",
+          day:
+            "flex h-8 w-8 items-center justify-center rounded-lg text-sm text-white/80 transition hover:bg-[#182235] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#ffbf00]/35",
+          day_selected:
+            "!bg-[#ffbf00] !text-[#2b2100] hover:!bg-[#ffbf00] hover:!text-[#2b2100] focus:!bg-[#ffbf00] focus:!text-[#2b2100]",
+          day_today:
+            "border border-emerald-400/60 bg-emerald-500/10 text-emerald-200",
+          day_outside: "text-white/20 opacity-50",
+          day_disabled: "text-white/20 opacity-40",
+          day_range_middle: "bg-[#182235] text-white",
+          day_hidden: "invisible",
+        }}
+      />
+
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/10 pt-3">
+        <button
+          type="button"
+          onClick={() => handleToggleDeal(item, true, toDateOnlyString(new Date()))}
+          className="
+            rounded-lg border border-white/10 bg-[#111a2a]
+            px-3 py-1.5 text-xs text-white/70 transition
+            hover:border-[#ffbf00]/40 hover:text-[#ffbf00]
+          "
+        >
+          Сегодня
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleToggleDeal(item, true, null)}
+          disabled={!item.delivery_date}
+          className="
+            rounded-lg border border-white/10 bg-[#111a2a]
+            px-3 py-1.5 text-xs text-white/70 transition
+            hover:border-red-400/40 hover:text-red-300
+            disabled:cursor-not-allowed disabled:opacity-35
+          "
+        >
+          Очистить
+        </button>
+      </div>
+    </PopoverContent>
+  </Popover>
+</div>
                   </div>
                 </div>
               );
@@ -1280,6 +2002,8 @@ const handleUploadQuoteFile = useCallback(
             </div>
           )}
         </div>
+      </div>
+    </div>
       </main>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>

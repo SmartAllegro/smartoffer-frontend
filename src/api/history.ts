@@ -39,13 +39,25 @@ export type HistoryListItem = {
 
   deal_done: boolean;
   deal_done_at?: string | null;
-
+  delivery_date?: string | null;
+  delivery_done?: boolean;
+  delivery_done_at?: string | null;
   history_outcome: "deal" | "sent" | "not_sent" | string;
 };
 
 export type HistoryListResponse = {
   items: HistoryListItem[];
   total: number;
+};
+
+export type DeliveryNoteItem = {
+  date: string;
+  body: string;
+  updated_at?: string | null;
+};
+
+export type DeliveryNotesResponse = {
+  items: DeliveryNoteItem[];
 };
 
 export type HistoryStatsResponse = {
@@ -156,6 +168,9 @@ export type HistoryDetailResponse = {
 
     deal_done: boolean;
     deal_done_at?: string | null;
+    delivery_date?: string | null;
+    delivery_done?: boolean;
+    delivery_done_at?: string | null;
     history_outcome: "deal" | "sent" | "not_sent" | string;
   };
 
@@ -199,7 +214,14 @@ export type DealToggleResponse = {
   ok: boolean;
   deal_done: boolean;
   deal_done_at: string | null;
+  delivery_date?: string | null;
   history_outcome: "deal" | "sent" | "not_sent" | string;
+};
+
+export type DeliveryToggleResponse = {
+  ok: boolean;
+  delivery_done: boolean;
+  delivery_done_at: string | null;
 };
 
 function buildQuery(params: Record<string, string | number | undefined | null>) {
@@ -236,6 +258,30 @@ export async function listHistory(
 
   return apiFetch<HistoryListResponse>(`/history${qs}`, {
     method: "GET",
+  });
+}
+
+export async function listHistoryNotes(
+  params: {
+    note_date?: string | null;
+  } = {}
+): Promise<DeliveryNotesResponse> {
+  const qs = buildQuery({
+    note_date: params.note_date,
+  });
+
+  return apiFetch<DeliveryNotesResponse>(`/history/notes${qs}`, {
+    method: "GET",
+  });
+}
+
+export async function saveHistoryNote(payload: {
+  date: string;
+  body: string;
+}): Promise<DeliveryNoteItem> {
+  return apiFetch<DeliveryNoteItem>("/history/notes", {
+    method: "POST",
+    json: payload,
   });
 }
 
@@ -415,11 +461,24 @@ export async function deleteQuoteFile(fileId: number): Promise<QuoteFileDeleteRe
 /** Отметить/снять "Сделка состоялась" у всего запроса */
 export async function setJobDealDone(
   jobId: number,
-  dealDone: boolean
+  payload: {
+    deal_done: boolean;
+    delivery_date?: string | null;
+  }
 ): Promise<DealToggleResponse> {
   return apiFetch<DealToggleResponse>(`/history/jobs/${jobId}/deal`, {
     method: "POST",
-    json: { deal_done: dealDone },
+    json: payload,
+  });
+}
+
+export async function setJobDeliveryDone(
+  jobId: number,
+  deliveryDone: boolean
+): Promise<DeliveryToggleResponse> {
+  return apiFetch<DeliveryToggleResponse>(`/history/jobs/${jobId}/delivery`, {
+    method: "POST",
+    json: { delivery_done: deliveryDone },
   });
 }
 
