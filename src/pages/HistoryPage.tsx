@@ -46,6 +46,7 @@ import {
   getHistoryStats,
   getResultReplies,
   listHistory,
+  markJobRepliesRead,
   listHistoryNotes,
   saveHistoryNote,
   setJobDealDone,
@@ -567,6 +568,15 @@ function getQuotesReceivedCount(item: HistoryListItem): number {
   return normalizeNumber(item.quotes_received_count);
 }
 
+function getUnreadRepliesCount(item: HistoryListItem): number {
+  return normalizeNumber(item.unread_replies_count);
+}
+
+function unreadBadgeLabel(count: number): string {
+  if (count > 99) return "99+";
+  return String(count);
+}
+
 function pluralizeRu(count: number, forms: [string, string, string]) {
   const abs = Math.abs(count) % 100;
   const last = abs % 10;
@@ -776,6 +786,8 @@ export default function HistoryPage() {
 
   const [items, setItems] = useState<HistoryListItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [deliveryItems, setDeliveryItems] = useState<HistoryListItem[]>([]);
+  const [deliveryItemsLoading, setDeliveryItemsLoading] = useState(false);
 
   const [loadingFirst, setLoadingFirst] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -837,6 +849,45 @@ const loadDeliveryNotes = useCallback(async () => {
     });
   } finally {
     setNotesLoading(false);
+  }
+}, [toast]);
+
+const loadDeliveryItems = useCallback(async () => {
+  setDeliveryItemsLoading(true);
+
+  try {
+    const collected: HistoryListItem[] = [];
+    let nextOffset = 0;
+    let guard = 0;
+
+    while (guard < 20) {
+      const res = await listHistory({
+        limit: PAGE_LIMIT,
+        offset: nextOffset,
+        outcome: "deal",
+        period: "all",
+        q: undefined,
+      });
+
+      const page = Array.isArray(res?.items) ? res.items : [];
+
+      collected.push(...page);
+
+      if (page.length < PAGE_LIMIT) break;
+
+      nextOffset += page.length;
+      guard += 1;
+    }
+
+    setDeliveryItems(collected);
+  } catch (e) {
+    toast({
+      title: "Не удалось загрузить календарь поставок",
+      description: e instanceof Error ? e.message : "Ошибка",
+      variant: "destructive",
+    });
+  } finally {
+    setDeliveryItemsLoading(false);
   }
 }, [toast]);
 
@@ -938,9 +989,13 @@ const loadDeliveryNotes = useCallback(async () => {
     loadStats().catch(() => {});
   }, [loadStats]);
 
-    useEffect(() => {
+  useEffect(() => {
     loadDeliveryNotes().catch(() => {});
   }, [loadDeliveryNotes]);
+
+  useEffect(() => {
+    loadDeliveryItems().catch(() => {});
+  }, [loadDeliveryItems]);
 
   useEffect(() => {
     const found = allDeliveryNotes.find(
@@ -997,6 +1052,24 @@ const loadDeliveryNotes = useCallback(async () => {
     try {
       const detail = await getHistoryDetail(jid);
 
+      const unreadBeforeOpen = getUnreadRepliesCount(item);
+
+      if (unreadBeforeOpen > 0) {
+        void markJobRepliesRead(jid)
+          .then(() => {
+            setItems((current) =>
+              current.map((x) =>
+                x.id === jid
+                  ? {
+                      ...x,
+                      unread_replies_count: 0,
+                    }
+                  : x
+              )
+            );
+          })
+          .catch(() => {});
+      }
       const subj =
         detail?.job?.email_subject ??
         item.email_subject ??
@@ -1104,6 +1177,7 @@ latest_reply: r?.latest_reply || null,
     );
 
     await loadStats();
+    await loadDeliveryItems();
   } catch (e) {
     setItems(previousItems);
 
@@ -1115,37 +1189,61 @@ latest_reply: r?.latest_reply || null,
   }
 }
 
+function patchDeliveryStatus(
+  list: HistoryListItem[],
+  itemId: number,
+  deliveryDone: boolean,
+  deliveryDoneAt: string | null
+): HistoryListItem[] {
+  return list.map((x) =>
+    x.id === itemId
+      ? {
+          ...x,
+          delivery_done: deliveryDone,
+          delivery_done_at: deliveryDoneAt,
+        }
+      : x
+  );
+}
+
 async function handleToggleDelivery(item: HistoryListItem, next: boolean) {
   const previousItems = items;
+  const previousDeliveryItems = deliveryItems;
+  const optimisticDoneAt = next ? new Date().toISOString() : null;
 
   setItems((current) =>
-    current.map((x) =>
-      x.id === item.id
-        ? {
-            ...x,
-            delivery_done: next,
-            delivery_done_at: next ? new Date().toISOString() : null,
-          }
-        : x
-    )
+    patchDeliveryStatus(current, item.id, next, optimisticDoneAt)
+  );
+
+  setDeliveryItems((current) =>
+    patchDeliveryStatus(current, item.id, next, optimisticDoneAt)
   );
 
   try {
     const res = await setJobDeliveryDone(item.id, next);
 
     setItems((current) =>
-      current.map((x) =>
-        x.id === item.id
-          ? {
-              ...x,
-              delivery_done: res.delivery_done,
-              delivery_done_at: res.delivery_done_at,
-            }
-          : x
+      patchDeliveryStatus(
+        current,
+        item.id,
+        res.delivery_done,
+        res.delivery_done_at
       )
     );
+
+    setDeliveryItems((current) =>
+      patchDeliveryStatus(
+        current,
+        item.id,
+        res.delivery_done,
+        res.delivery_done_at
+      )
+    );
+
+    await loadDeliveryItems();
   } catch (e) {
     setItems(previousItems);
+    setDeliveryItems(previousDeliveryItems);
 
     toast({
       title: "Не удалось сохранить статус поставки",
@@ -1501,7 +1599,7 @@ const handleUploadQuoteFile = useCallback(
 
 <div className="mt-5 grid grid-cols-1 gap-5 2xl:grid-cols-[320px_minmax(0,1280px)] 2xl:items-start 2xl:justify-center">
   <DeliveryCalendarPanel
-    items={items}
+    items={deliveryItems}
     selectedDate={selectedDeliveryDate}
     note={deliveryNote}
     noteMode={deliveryNoteMode}
@@ -1751,6 +1849,7 @@ const handleUploadQuoteFile = useCallback(
                           openDetail(item);
                         }}
                         className="
+                          relative
                           inline-flex h-11 w-11 items-center justify-center rounded-xl
                           border border-blue-500/28
                           bg-blue-500/20
@@ -1759,6 +1858,9 @@ const handleUploadQuoteFile = useCallback(
                           hover:border-[#ffbf00]
                           hover:bg-[#ffbf00]
                           hover:text-[#2b2100]
+                          active:border-[#ffbf00]
+                          active:bg-[#ffbf00]
+                          active:text-[#2b2100]
                           focus:outline-none
                           focus-visible:ring-2
                           focus-visible:ring-[#ffbf00]/45
@@ -1767,6 +1869,23 @@ const handleUploadQuoteFile = useCallback(
                         aria-label="Открыть запрос"
                       >
                         <FileText className="h-5 w-5" />
+
+                        {getUnreadRepliesCount(item) > 0 ? (
+                          <span
+                            className="
+                              absolute -right-1.5 -top-1.5
+                              flex h-5 min-w-5 items-center justify-center rounded-full
+                              border border-[#0b1220]
+                              bg-red-500
+                              px-1.5
+                              text-[10px] font-bold leading-none text-white
+                              shadow-[0_0_0_2px_rgba(239,68,68,0.18)]
+                            "
+                            title={`${getUnreadRepliesCount(item)} непрочитанных ответов`}
+                          >
+                            {unreadBadgeLabel(getUnreadRepliesCount(item))}
+                          </span>
+                        ) : null}
                       </button>
                     </div>
 

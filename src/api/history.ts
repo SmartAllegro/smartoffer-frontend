@@ -29,7 +29,7 @@ export type HistoryListItem = {
   emails_failed: number;
   quotes_received_count?: number;
   replies_count?: number;
-
+  unread_replies_count?: number;
   status: string;
   error_message?: string | null;
   started_at?: string | null;
@@ -89,6 +89,13 @@ export type ReplyAttachmentItem = {
   size_bytes: number;
   detected_type: string;
   uploaded_at: string;
+};
+
+export type MarkJobRepliesReadResponse = {
+  ok: boolean;
+  job_id: number;
+  marked_count: number;
+  unread_replies_count: number;
 };
 
 export type SupplierReplyItem = {
@@ -482,4 +489,14 @@ export async function setJobDeliveryDone(
   });
 }
 
+export async function markJobRepliesRead(
+  jobId: number
+): Promise<MarkJobRepliesReadResponse> {
+  return apiFetch<MarkJobRepliesReadResponse>(
+    `/history/jobs/${jobId}/replies/read`,
+    {
+      method: "POST",
+    }
+  );
+}
   
