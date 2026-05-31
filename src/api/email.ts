@@ -117,3 +117,67 @@ export async function getEmailSettings(): Promise<EmailSettingsOut> {
     method: "GET",
   });
 }
+
+export type ImapSettingsOut = {
+  is_enabled: boolean;
+  is_verified: boolean;
+
+  provider_id?: string | null;
+  from_email?: string | null;
+
+  imap_host?: string | null;
+  imap_port?: number | null;
+  imap_security?: string | null;
+
+  inbox_folder?: string | null;
+  sent_folder?: string | null;
+
+  sync_inbox_enabled: boolean;
+  sync_sent_enabled: boolean;
+
+  verified_at?: string | null;
+  last_verified_error?: string | null;
+  consent_accepted_at?: string | null;
+};
+
+export type ImapSettingsIn = {
+  enabled: boolean;
+  consent_accepted: boolean;
+};
+
+export async function saveImapSettings(
+  payload: ImapSettingsIn
+): Promise<ImapSettingsOut> {
+  return apiFetch<ImapSettingsOut>("/email/imap/settings", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export type EmailAccessStatus = {
+  ready: boolean;
+  blocking_reason: string | null;
+  message: string | null;
+
+  smtp_configured: boolean;
+  smtp_verified: boolean;
+  smtp_consent_accepted: boolean;
+  offer_accepted: boolean;
+
+  imap_configured: boolean;
+  imap_enabled: boolean;
+  imap_verified: boolean;
+  imap_consent_accepted: boolean;
+  imap_technical_consent: boolean;
+
+  smtp_from_email?: string | null;
+  imap_from_email?: string | null;
+  imap_inbox_folder?: string | null;
+  imap_sent_folder?: string | null;
+};
+
+export async function getEmailAccessStatus(): Promise<EmailAccessStatus> {
+  return apiFetch<EmailAccessStatus>("/email/access", {
+    method: "GET",
+  });
+}

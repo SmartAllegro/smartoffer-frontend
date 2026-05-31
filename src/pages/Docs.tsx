@@ -49,6 +49,12 @@ const QUICK_LINKS = [
     icon: Shield,
   },
   {
+    title: "Согласие на обработку email-данных",
+    description: "Условия IMAP-доступа для сохранения ответов поставщиков в истории SmartOffer.",
+    to: "/imap-email-sync-consent",
+    icon: FileText,
+  },
+  {
     title: "Публичная оферта",
     description: "Условия предоставления доступа к сервису и оплаты тарифов.",
     to: "/offer",

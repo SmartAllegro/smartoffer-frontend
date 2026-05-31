@@ -26,7 +26,10 @@ import {
   verifyEmailSmtp,
   saveEmailSettings,
   getEmailSettings,
+  saveImapSettings,
+  getEmailAccessStatus,
   type EmailProviderPreset,
+  type EmailAccessStatus,
 } from "@/api/email";
 import {
   fetchBillingMe,
@@ -183,6 +186,11 @@ export function SettingsModal({
   const [offerAccepted, setOfferAccepted] = React.useState(false);
   const [offerAcceptedLocked, setOfferAcceptedLocked] = React.useState(false);
 
+  const [imapConsentAccepted, setImapConsentAccepted] = React.useState(false);
+  const [emailAccessStatus, setEmailAccessStatus] = React.useState<EmailAccessStatus | null>(null);
+  const [imapSetupError, setImapSetupError] = React.useState<string | null>(null);
+  const [imapSaving, setImapSaving] = React.useState(false);
+
   const [meEmail, setMeEmail] = React.useState<string>("");
 
   const [deleteConfirmEmail, setDeleteConfirmEmail] = React.useState("");
@@ -203,6 +211,12 @@ export function SettingsModal({
   const selectedProvider = React.useMemo(
     () => providers.find((p) => p.id === providerId) ?? null,
     [providers, providerId]
+  );
+
+  const imapConsentLocked = Boolean(emailAccessStatus?.imap_consent_accepted);
+
+  const imapConsentEffective = Boolean(
+    imapConsentLocked || imapConsentAccepted
   );
 
   const canDeleteAccount =
@@ -249,6 +263,9 @@ const billingPeriodLabel = getBillingPeriodLabel(billing);
     setSmtpConsentLocked(false);
     setOfferAccepted(false);
     setOfferAcceptedLocked(false);
+    setImapConsentAccepted(false);
+    setEmailAccessStatus(null);
+    setImapSetupError(null);
     setSmtpStatus({ state: "idle" });
 
     fetchMe()
@@ -272,7 +289,10 @@ const billingPeriodLabel = getBillingPeriodLabel(billing);
         if (s?.provider_id) setProviderId(s.provider_id);
 
         if (s.is_verified) {
-          setSmtpStatus({ state: "ok", message: "SMTP настроен и подтверждён" });
+          setSmtpStatus({
+            state: "ok",
+            message: "SMTP подтверждён. Проверяем IMAP...",
+          });
         } else if (s.last_verified_error) {
           setSmtpStatus({ state: "error", message: s.last_verified_error });
         }
@@ -293,47 +313,207 @@ const billingPeriodLabel = getBillingPeriodLabel(billing);
     void refreshBilling();
   }, [open, toast, refreshBilling]);
 
+React.useEffect(() => {
+  if (!open) return;
+
+  let cancelled = false;
+
+  async function loadAccessStatus() {
+    try {
+      const status = await getEmailAccessStatus();
+
+      if (cancelled) return;
+
+      setEmailAccessStatus(status);
+      setImapConsentAccepted(Boolean(status.imap_consent_accepted));
+      setImapSetupError(null);
+
+      if (status.ready) {
+        setSmtpStatus({
+          state: "ok",
+          message: "SMTP/IMAP подтверждены. SmartOffer готов к работе.",
+        });
+      } else if (status.smtp_verified) {
+        setSmtpStatus({
+          state: "error",
+          message:
+          status.message ||
+          "SMTP подтверждён, но IMAP/согласие для обработки ответов поставщиков не завершены.",
+        });
+      }
+    } catch {
+      if (cancelled) return;
+
+      setEmailAccessStatus(null);
+    }
+  }
+
+  void loadAccessStatus();
+
+  return () => {
+    cancelled = true;
+  };
+}, [open]);
+
+
   const setTemplate = (template: string) => setState((s) => ({ ...s, template }));
   const handleResetTemplate = () => setTemplate(DEFAULT_TEMPLATE);
 
+async function saveImapConsentAndRefresh(): Promise<boolean> {
+  setImapSaving(true);
+  setImapSetupError(null);
+
+  try {
+    await saveImapSettings({
+      enabled: true,
+      consent_accepted: true,
+    });
+
+    const access = await getEmailAccessStatus();
+
+    setEmailAccessStatus(access);
+    setImapConsentAccepted(Boolean(access.imap_consent_accepted));
+
+    if (!access.ready) {
+      const message =
+        access.message ||
+        "Почта для отправки подключена, но входящая почта не проверена.";
+
+      setImapSetupError(message);
+
+      toast({
+        title: "Входящая почта не проверена",
+        description: message,
+        variant: "destructive",
+      });
+
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    const message =
+      e instanceof Error
+        ? e.message
+        : "Почта для отправки подключена, но входящая почта не проверена.";
+
+    setImapSetupError(message);
+
+    toast({
+      title: "Входящая почта не проверена",
+      description:
+        "Проверьте, что пароль приложения создан с доступом к Почте: IMAP, POP3, SMTP.",
+      variant: "destructive",
+    });
+
+    return false;
+  } finally {
+    setImapSaving(false);
+  }
+}
+
   async function handleSave() {
-    saveSettings(state);
-    onSaved?.(state);
+  saveSettings(state);
+  onSaved?.(state);
 
-    const wantsSaveSmtp = Boolean(providerId && appPassword.trim());
+  const wantsSaveSmtp = Boolean(providerId && appPassword.trim());
+  const smtpAlreadyVerified = Boolean(
+    emailAccessStatus?.smtp_verified || smtpStatus.state === "ok"
+  );
 
-    if (!wantsSaveSmtp) {
-      onOpenChange(false);
-      toast({ title: "Настройки сохранены" });
+  if (!wantsSaveSmtp) {
+    if (smtpAlreadyVerified && !imapConsentEffective) {
+      setExpanded("auth");
+      setSmtpStatus({
+        state: "error",
+        message:
+          "Для работы SmartOffer необходимо принять согласие на обработку email-данных для синхронизации ответов поставщиков.",
+      });
+
+      toast({
+        title: "Нужно согласие на обработку ответов поставщиков",
+        description:
+          "Для работы SmartOffer необходимо разрешить обработку email-данных по запросам сервиса.",
+        variant: "destructive",
+      });
+
       return;
     }
+
+    if (smtpAlreadyVerified && imapConsentEffective && !emailAccessStatus?.ready) {
+      setSaving(true);
+
+      try {
+        const imapOk = await saveImapConsentAndRefresh();
+
+        if (!imapOk) {
+          return;
+        }
+
+        setSmtpStatus({
+          state: "ok",
+          message: "SMTP/IMAP подтверждены. SmartOffer готов к работе.",
+        });
+
+        toast({
+          title: "Почта настроена",
+          description: "SMTP/IMAP подтверждены. SmartOffer готов к работе.",
+        });
+
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    onOpenChange(false);
+    toast({ title: "Настройки сохранены" });
+    return;
+  }
 
     if (!smtpConsentChecked) {
       setExpanded("auth");
       setSmtpStatus({
         state: "error",
         message:
-          "Для сохранения SMTP-настроек необходимо подтвердить согласие на обработку персональных данных.",
+          "Для сохранения SMTP/IMAP-настроек необходимо подтвердить согласие на обработку персональных данных.",
       });
       toast({
         title: "Подтвердите согласие",
-        description: "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
+        description: "Без этой галочки SmartOffer не сохранит SMTP/IMAP-настройки.",
         variant: "destructive",
       });
       return;
     }
 
 
+if (!imapConsentEffective) {
+  setExpanded("auth");
+  setSmtpStatus({
+    state: "error",
+    message:
+      "Для работы SmartOffer необходимо принять согласие на обработку email-данных для синхронизации ответов поставщиков.",
+  });
+  toast({
+    title: "Нужно согласие на обработку ответов поставщиков",
+    description:
+      "Для работы SmartOffer необходимо разрешить обработку email-данных по запросам сервиса.",
+    variant: "destructive",
+  });
+
+  return;
+}
+
 if (!offerAccepted) {
   setExpanded("auth");
   setSmtpStatus({
     state: "error",
     message:
-      "Для сохранения SMTP-настроек необходимо принять публичную оферту.",
+      "Для сохранения SMTP/IMAP-настроек необходимо принять публичную оферту.",
   });
   toast({
     title: "Примите публичную оферту",
-    description: "Без этой галочки SmartOffer не сохранит SMTP-настройки.",
+    description: "Без этой галочки SmartOffer не сохранит SMTP/IMAP-настройки.",
     variant: "destructive",
   });
   return;
@@ -370,7 +550,7 @@ if (!offerAccepted) {
         from_email: meEmail,
         test_to_email: meEmail,
         subject: "Smartoffer: тестовое письмо",
-        body: "Это тестовое письмо для проверки настроек SMTP в Smartoffer.",
+        body: "Это тестовое письмо для проверки настроек SMTP/IMAP в Smartoffer.",
       });
 
       if (!verifyRes.ok) {
@@ -405,19 +585,24 @@ if (!offerAccepted) {
       setOfferAccepted(true);
       setOfferAcceptedLocked(true);
 
-      const refreshedBilling = await refreshBilling();
-      const successMessage = getSmtpSuccessMessage(refreshedBilling);
+      const imapOk = await saveImapConsentAndRefresh();
+
+      if (!imapOk) {
+        return;
+      }
+
+      await refreshBilling();
 
       setSmtpStatus({
         state: "ok",
-        message: successMessage,
+        message: "SMTP/IMAP подтверждены. SmartOffer готов к работе.",
       });
 
       setExpanded("billing");
 
       toast({
         title: "Почта настроена",
-        description: successMessage,
+        description: "SMTP/IMAP подтверждены. SmartOffer готов к работе.",
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Произошла ошибка";
@@ -436,7 +621,7 @@ if (!offerAccepted) {
     if (!canDeleteAccount || deletingAccount) return;
 
     const confirmed = window.confirm(
-      "Удаление аккаунта необратимо. Будут удалены аккаунт, SMTP-настройки, история поисков и связанные данные. Продолжить?"
+      "Удаление аккаунта необратимо. Будут удалены аккаунт, SMTP/IMAP-настройки, история поисков и связанные данные. Продолжить?"
     );
     if (!confirmed) return;
 
@@ -559,62 +744,106 @@ if (!offerAccepted) {
 
                 <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-4">
   <div className="flex items-start gap-3">
-  <Checkbox
-    id="smtp-personal-data-consent"
-    checked={smtpConsentChecked}
-    onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
-    disabled={saving || smtpConsentLocked}
-    className="mt-0.5"
-  />
+    <Checkbox
+      id="smtp-personal-data-consent"
+      checked={smtpConsentChecked}
+      onCheckedChange={(checked) => setSmtpConsentChecked(checked === true)}
+      disabled={saving || smtpConsentLocked}
+      className="mt-0.5"
+    />
 
-  <div className="space-y-2">
-    <Label
-      htmlFor="smtp-personal-data-consent"
-      className="text-sm leading-5 cursor-pointer"
-    >
-      Я даю согласие на обработку персональных данных для настройки SMTP
-      и отправки писем через SmartOffer.
-    </Label>
+    <div className="space-y-2">
+      <Label
+        htmlFor="smtp-personal-data-consent"
+        className="text-sm leading-5 cursor-pointer"
+      >
+        Я даю согласие на обработку персональных данных для настройки SMTP
+        и отправки писем через SmartOffer.
+      </Label>
 
-    <p className="text-xs text-muted-foreground leading-relaxed">
-      {smtpConsentLocked
-        ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
-        : "Без этой галочки сервис не сохранит SMTP-настройки."}
-    </p>
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        {smtpConsentLocked
+          ? "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+          : "Без этой галочки сервис не сохранит SMTP-настройки."}
+      </p>
 
-    <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3">
+        <Link
+          to="/personal-data-consent"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+        >
+          Согласие на обработку ПДн
+          <ExternalLink className="w-3.5 h-3.5" />
+        </Link>
+
+        <Link
+          to="/privacy"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+        >
+          Политика конфиденциальности
+          <ExternalLink className="w-3.5 h-3.5" />
+        </Link>
+        
+        <Link
+          to="/data-retention"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
+        >
+          Политика хранения данных
+          <ExternalLink className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+    </div>
+  </div>
+
+  <div className="h-px bg-border" />
+
+  <div className="flex items-start gap-3">
+    <Checkbox
+      id="imap-email-sync-consent"
+      checked={imapConsentEffective}
+      onCheckedChange={(checked) => setImapConsentAccepted(checked === true)}
+      disabled={saving || imapSaving || imapConsentLocked}
+      className="mt-0.5"
+    />
+
+    <div className="space-y-2">
+      <Label
+        htmlFor="imap-email-sync-consent"
+        className="text-sm leading-5 cursor-pointer"
+      >
+        Я разрешаю SmartOffer подключаться к моей рабочей почте по IMAP только
+        для поиска и обработки писем, относящихся к запросам SmartOffer.
+      </Label>
+
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        {imapConsentLocked ? (
+          "Согласие уже зафиксировано в аккаунте. Для отзыва напишите на support@smartoffer.pro."
+        ) : (
+          <>
+            SmartOffer сохраняет только письма с ID запроса вида{" "}
+            <span className="text-foreground">[SO-...]</span> и ответы в той же
+            цепочке переписки. Посторонние письма не сохраняются.
+          </>
+        )}
+      </p>
+
       <Link
-        to="/personal-data-consent"
+        to="/imap-email-sync-consent"
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
-        Согласие на обработку ПДн
-        <ExternalLink className="w-3.5 h-3.5" />
-      </Link>
-
-      <Link
-        to="/privacy"
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
-      >
-        Политика конфиденциальности
-        <ExternalLink className="w-3.5 h-3.5" />
-      </Link>
-
-      <Link
-        to="/data-retention"
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
-      >
-        Политика хранения данных
+        Открыть согласие на обработку email-данных
         <ExternalLink className="w-3.5 h-3.5" />
       </Link>
     </div>
   </div>
-</div>
 
   <div className="h-px bg-border" />
 
@@ -652,6 +881,12 @@ if (!offerAccepted) {
       </Link>
     </div>
   </div>
+
+  {imapSetupError && (
+    <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-foreground">
+      {imapSetupError}
+    </div>
+  )}
 </div>
 
                 {smtpStatus.state !== "idle" && (
@@ -953,8 +1188,8 @@ if (!offerAccepted) {
           >
             Отмена
           </Button>
-          <Button onClick={handleSave} disabled={saving || deletingAccount}>
-            {saving ? "Проверяем…" : "Сохранить"}
+          <Button onClick={handleSave} disabled={saving || imapSaving || deletingAccount}>
+            {saving || imapSaving ? "Проверяем…" : "Сохранить"}
           </Button>
         </div>
       </DialogContent>

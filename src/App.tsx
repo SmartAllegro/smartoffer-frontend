@@ -9,6 +9,7 @@ import { HashRouter, Routes, Route, useLocation } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import EmailVerification from "./pages/EmailVerification";
+import ImapEmailSyncConsent from "./pages/ImapEmailSyncConsent";
 import About from "./pages/About";
 import ResetPassword from "./pages/ResetPassword";
 import Terms from "./pages/Terms";
@@ -51,6 +52,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/email-verification" element={<EmailVerification />} />
+          <Route path="/imap-email-sync-consent" element={<ImapEmailSyncConsent />} />
           <Route path="/about" element={<About />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/terms" element={<Terms />} />

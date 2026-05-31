@@ -1329,8 +1329,8 @@ const handleSetReplyStatus = useCallback(
     const prevSuppliers = detailSuppliers;
     const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
     const wasReceived = Boolean(prevSupplier?.quote_received);
-    const nextReceived = status === "quote_received";
-    const delta = wasReceived === nextReceived ? 0 : nextReceived ? 1 : -1;
+    const nextReceived = wasReceived;
+    const delta = 0;
 
     setDetailSuppliers((cur) =>
       cur.map((s) =>
@@ -1338,9 +1338,9 @@ const handleSetReplyStatus = useCallback(
           ? {
               ...s,
               reply_status: status,
-              quote_received: nextReceived,
-              quote_received_at: nextReceived ? new Date() : null,
-              quote_source: nextReceived ? "manual" : null,
+              quote_received: s.quote_received,
+              quote_received_at: s.quote_received_at,
+              quote_source: status === "quote_received" ? "manual" : null,
             }
           : s
       )
@@ -1359,10 +1359,8 @@ const handleSetReplyStatus = useCallback(
             ? {
                 ...s,
                 reply_status: res.reply_status || status,
-                quote_received: !!res.quote_received,
-                quote_received_at: res.quote_received_at
-                  ? new Date(res.quote_received_at)
-                  : null,
+                quote_received: s.quote_received,
+                quote_received_at: s.quote_received_at,
                 quote_source: res.quote_source || null,
                 quote_file_count: normalizeNumber(res.quote_file_count),
                 last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
