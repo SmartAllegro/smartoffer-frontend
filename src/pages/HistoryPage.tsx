@@ -46,7 +46,7 @@ import {
   getHistoryStats,
   getResultReplies,
   listHistory,
-  markJobRepliesRead,
+  markResultRepliesRead,
   listHistoryNotes,
   saveHistoryNote,
   setJobDealDone,
@@ -1051,25 +1051,7 @@ const loadDeliveryItems = useCallback(async () => {
 
     try {
       const detail = await getHistoryDetail(jid);
-
-      const unreadBeforeOpen = getUnreadRepliesCount(item);
-
-      if (unreadBeforeOpen > 0) {
-        void markJobRepliesRead(jid)
-          .then(() => {
-            setItems((current) =>
-              current.map((x) =>
-                x.id === jid
-                  ? {
-                      ...x,
-                      unread_replies_count: 0,
-                    }
-                  : x
-              )
-            );
-          })
-          .catch(() => {});
-      }
+      
       const subj =
         detail?.job?.email_subject ??
         item.email_subject ??
@@ -1113,6 +1095,7 @@ reply_status: r?.reply_status || "no_reply",
 quote_source: r?.quote_source || null,
 quote_file_count: normalizeNumber(r?.quote_file_count),
 supplier_replies_count: normalizeNumber(r?.supplier_replies_count),
+unread_supplier_replies_count: normalizeNumber(r?.unread_supplier_replies_count),
 last_reply_at: r?.last_reply_at ? new Date(r.last_reply_at) : null,
 latest_reply: r?.latest_reply || null,
         } as Supplier;
@@ -1446,6 +1429,84 @@ const handleOpenQuoteFile = useCallback(
     }
   },
   [toast]
+);
+
+const handleMarkSupplierDialogRead = useCallback(
+  async (supplierId: string, backendResultId: number) => {
+    const prevSuppliers = detailSuppliers;
+
+    const supplier = detailSuppliers.find((s) => s.id === supplierId);
+    const unreadBefore = normalizeNumber(supplier?.unread_supplier_replies_count);
+
+    if (unreadBefore <= 0) return;
+
+    setDetailSuppliers((current) =>
+      current.map((s) =>
+        s.id === supplierId
+          ? {
+              ...s,
+              unread_supplier_replies_count: 0,
+            }
+          : s
+      )
+    );
+
+    if (detailJobId) {
+      setItems((current) =>
+        current.map((item) =>
+          item.id === detailJobId
+            ? {
+                ...item,
+                unread_replies_count: Math.max(
+                  0,
+                  normalizeNumber(item.unread_replies_count) - unreadBefore
+                ),
+              }
+            : item
+        )
+      );
+    }
+
+    try {
+      const res = await markResultRepliesRead(backendResultId);
+
+      setDetailSuppliers((current) =>
+        current.map((s) =>
+          s.id === supplierId
+            ? {
+                ...s,
+                unread_supplier_replies_count: normalizeNumber(
+                  res.unread_supplier_replies_count
+                ),
+              }
+            : s
+        )
+      );
+    } catch (e) {
+      setDetailSuppliers(prevSuppliers);
+
+      if (detailJobId) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === detailJobId
+              ? {
+                  ...item,
+                  unread_replies_count:
+                    normalizeNumber(item.unread_replies_count) + unreadBefore,
+                }
+              : item
+          )
+        );
+      }
+
+      toast({
+        title: "Не удалось отметить диалог прочитанным",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  },
+  [detailSuppliers, detailJobId, toast]
 );
 
 const handleUploadQuoteFile = useCallback(
@@ -2146,6 +2207,7 @@ const handleUploadQuoteFile = useCallback(
                 onSetReplyStatus={handleSetReplyStatus}
                 onUploadQuoteFile={handleUploadQuoteFile}
                 onOpenQuoteFile={handleOpenQuoteFile}
+                onMarkSupplierDialogRead={handleMarkSupplierDialogRead}
               />
             )}
           </div>

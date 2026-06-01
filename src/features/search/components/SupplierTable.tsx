@@ -78,6 +78,11 @@ interface SupplierTableProps {
     supplierId: string,
     backendResultId: number
   ) => void | Promise<void>;
+
+  onMarkSupplierDialogRead?: (
+    supplierId: string,
+    backendResultId: number
+  ) => void | Promise<void>;
 }
 
  function safeHostLabel(rawUrl?: string): string {
@@ -183,11 +188,22 @@ function fileSizeLabel(sizeBytes?: number | null): string {
   return `${(value / 1024 / 1024).toFixed(1)} МБ`;
 }
 
+function supplierDialogCount(supplier: Supplier): number {
+  const value = Number(supplier.supplier_replies_count || 0);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function unreadSupplierDialogCount(supplier: Supplier): number {
+  const value = Number(supplier.unread_supplier_replies_count || 0);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 function hasSupplierDialog(supplier: Supplier): boolean {
-  return Boolean(
-    supplier.backend_result_id &&
-    Number(supplier.supplier_replies_count || 0) > 0
-  );
+  return Boolean(supplier.backend_result_id && supplierDialogCount(supplier) > 0);
+}
+
+function supplierDialogBadgeText(count: number): string {
+  return count > 99 ? "99+" : String(count);
 }
 
 function SupplierStatusBadge({
@@ -514,6 +530,7 @@ export function SupplierTable({
   onSetReplyStatus,
   onUploadQuoteFile,
   onOpenQuoteFile,
+  onMarkSupplierDialogRead,
 }: SupplierTableProps) {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
@@ -582,6 +599,10 @@ async function openSupplierDialog(supplier: Supplier) {
   try {
     const response = await getResultReplies(supplier.backend_result_id);
     setDialogReplies(Array.isArray(response.items) ? response.items : []);
+
+    if (Number(supplier.unread_supplier_replies_count || 0) > 0) {
+      await onMarkSupplierDialogRead?.(supplier.id, supplier.backend_result_id);
+    }
   } catch (e) {
     setDialogError(
       e instanceof Error ? e.message : "Не удалось загрузить диалог"
@@ -690,6 +711,8 @@ async function openDialogAttachment(file: ReplyAttachmentItem) {
               const backendId = supplier.backend_result_id;
               const quoteChecked = !!supplier.quote_received;
               const quoteFileCount = Number(supplier.quote_file_count || 0);
+              const replyDialogCount = supplierDialogCount(supplier);
+              const unreadReplyDialogCount = unreadSupplierDialogCount(supplier);
 
 const quoteToggleDisabled =
   !backendId || !canToggleQuote;
@@ -968,7 +991,7 @@ const uploadQuoteDisabled =
             </button>
           ) : null}
 
-          {hasSupplierDialog(supplier) ? (
+          {replyDialogCount > 0 ? (
             <button
               type="button"
               onClick={(event) => {
@@ -977,15 +1000,33 @@ const uploadQuoteDisabled =
                 openSupplierDialog(supplier);
               }}
               className="
-                inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
+                relative inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
                 border border-sky-500/25 bg-sky-500/10 px-2
                 text-[10px] font-semibold text-sky-200
                 transition hover:bg-sky-500 hover:text-white
               "
-              title="Открыть диалог с поставщиком"
+              title={
+                unreadReplyDialogCount > 0
+                  ? `Открыть диалог с поставщиком · новых сообщений: ${unreadReplyDialogCount} · всего сообщений: ${replyDialogCount}`
+                  : `Открыть диалог с поставщиком · всего сообщений: ${replyDialogCount}`
+              }
             >
               <MessageSquareText className="h-3.5 w-3.5" />
               Диалог
+
+              {unreadReplyDialogCount > 0 ? (
+                <span
+                  className="
+                    absolute -right-1.5 -top-1.5
+                    inline-flex h-4 min-w-4 items-center justify-center rounded-full
+                    border border-card bg-red-500 px-1
+                    text-[9px] font-bold leading-none text-white
+                    shadow-[0_0_0_1px_rgba(0,0,0,0.25)]
+                  "
+                >
+                  {supplierDialogBadgeText(unreadReplyDialogCount)}
+                </span>
+              ) : null}
             </button>
           ) : null}
 

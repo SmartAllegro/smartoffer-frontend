@@ -98,6 +98,13 @@ export type MarkJobRepliesReadResponse = {
   unread_replies_count: number;
 };
 
+export type MarkResultRepliesReadResponse = {
+  ok: boolean;
+  result_id: number;
+  marked_count: number;
+  unread_supplier_replies_count: number;
+};
+
 export type SupplierReplyItem = {
   id: number;
   source: "manual" | "inbound_email" | "system" | string;
@@ -150,6 +157,7 @@ export type HistoryDetailResult = {
   quote_file_count?: number;
 
   supplier_replies_count?: number;
+  unread_supplier_replies_count?: number;
 
   last_reply_at?: string | null;
   latest_reply?: SupplierReplyItem | null;
@@ -499,4 +507,14 @@ export async function markJobRepliesRead(
     }
   );
 }
-  
+
+export async function markResultRepliesRead(
+  resultId: number
+): Promise<MarkResultRepliesReadResponse> {
+  return apiFetch<MarkResultRepliesReadResponse>(
+    `/history/results/${resultId}/replies/read`,
+    {
+      method: "POST",
+    }
+  );
+}  
