@@ -61,6 +61,17 @@ import {
   type HistoryStatsResponse,
   type ReplyStatus,
 } from "@/api/history";
+
+import {
+  fetchTeamMe,
+  getTeamHistoryDetail,
+  getTeamHistoryStats,
+  listTeamHistory,
+  listTeamManagers,
+  type TeamMe,
+  type TeamMember,
+} from "@/api/team";
+
 const PAGE_LIMIT = 50;
 
 const PERIODS: Array<{ value: HistoryPeriod; label: string }> = [
@@ -176,6 +187,7 @@ function DeliveryCalendarPanel({
   noteMode,
   allNotes,
   notesLoading,
+  readOnly,
   onSelectDate,
   onNoteChange,
   onNoteModeChange,
@@ -190,6 +202,7 @@ function DeliveryCalendarPanel({
   noteMode: DeliveryNoteMode;
   allNotes: DeliveryNoteItem[];
   notesLoading: boolean;
+  readOnly?: boolean;
   onSelectDate: (value: string) => void;
   onNoteChange: (value: string) => void;
   onNoteModeChange: (value: DeliveryNoteMode) => void;
@@ -398,9 +411,11 @@ const overdueDatesSet = useMemo(() => {
         >
           <Checkbox
             checked={!!item.delivery_done}
-            onCheckedChange={(checked) =>
-              onToggleDelivery(item, checked === true)
-            }
+            disabled={readOnly}
+            onCheckedChange={(checked) => {
+              if (readOnly) return;
+              onToggleDelivery(item, checked === true);
+            }}
             className="
               h-4 w-4
               border-[#4a5568]
@@ -488,10 +503,12 @@ const overdueDatesSet = useMemo(() => {
         type="button"
         variant="outline"
         onClick={onSaveNote}
+        disabled={readOnly}
         className="
           mt-3 h-9 w-full border-[#2f3a4d] bg-[#151f2d]
           text-white hover:border-[#ffbf00] hover:bg-[#ffbf00]
           hover:text-[#2b2100]
+          disabled:cursor-not-allowed disabled:opacity-40
         "
       >
         Сохранить заметку
@@ -798,6 +815,16 @@ export default function HistoryPage() {
   const [outcome, setOutcome] = useState<HistoryOutcome>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [historyScope, setHistoryScope] = useState<"personal" | "team">("personal");
+  const [teamMe, setTeamMe] = useState<TeamMe | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [teamActorFilter, setTeamActorFilter] = useState<string>("all");
+
+  const selectedTeamActorId =
+    historyScope === "team" && teamActorFilter !== "all"
+      ? Number(teamActorFilter)
+      : undefined;
+
   const [stats, setStats] = useState<HistoryStatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<string>("");
@@ -833,6 +860,50 @@ export default function HistoryPage() {
 
   const canShowEmail = (emailSubject || "").trim() || (emailBody || "").trim();
 
+useEffect(() => {
+  fetchTeamMe()
+    .then((data) => {
+      setTeamMe(data);
+
+      if (!data.can_view_team_history) {
+        setHistoryScope("personal");
+        setTeamActorFilter("all");
+        setTeamMembers([]);
+        return;
+      }
+
+      listTeamManagers()
+        .then((members) => {
+          setTeamMembers(Array.isArray(members.items) ? members.items : []);
+        })
+        .catch(() => {
+          setTeamMembers([]);
+        });
+    })
+    .catch(() => {
+      setTeamMe(null);
+      setHistoryScope("personal");
+      setTeamActorFilter("all");
+      setTeamMembers([]);
+    });
+}, []);
+
+useEffect(() => {
+  if (historyScope !== "team") return;
+
+  setItems([]);
+  setTotal(0);
+  setOffset(0);
+  setHasMore(true);
+
+  setDetailOpen(false);
+  setDetailLoading(false);
+  setDetailSuppliers([]);
+  setDetailJobId(null);
+
+  setEmailSubject("");
+  setEmailBody("");
+}, [historyScope, selectedTeamActorId]);
 
 const loadDeliveryNotes = useCallback(async () => {
   setNotesLoading(true);
@@ -861,13 +932,23 @@ const loadDeliveryItems = useCallback(async () => {
     let guard = 0;
 
     while (guard < 20) {
-      const res = await listHistory({
-        limit: PAGE_LIMIT,
-        offset: nextOffset,
-        outcome: "deal",
-        period: "all",
-        q: undefined,
-      });
+      const res =
+        historyScope === "team"
+          ? await listTeamHistory({
+              limit: PAGE_LIMIT,
+              offset: nextOffset,
+              outcome: "deal",
+              period: "all",
+              q: undefined,
+              actor_user_id: selectedTeamActorId,
+            })
+          : await listHistory({
+              limit: PAGE_LIMIT,
+              offset: nextOffset,
+              outcome: "deal",
+              period: "all",
+              q: undefined,
+            });
 
       const page = Array.isArray(res?.items) ? res.items : [];
 
@@ -889,13 +970,17 @@ const loadDeliveryItems = useCallback(async () => {
   } finally {
     setDeliveryItemsLoading(false);
   }
-}, [toast]);
+}, [historyScope, selectedTeamActorId, toast]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
 
     try {
-      const result = await getHistoryStats(period);
+      const result =
+        historyScope === "team"
+          ? await getTeamHistoryStats(period, selectedTeamActorId)
+          : await getHistoryStats(period);
+
       setStats(result);
       setUpdatedAt(formatUpdatedAt());
     } catch (e) {
@@ -907,7 +992,7 @@ const loadDeliveryItems = useCallback(async () => {
     } finally {
       setStatsLoading(false);
     }
-  }, [period, toast]);
+  }, [historyScope, period, selectedTeamActorId, toast]);
 
   const loadFirstPage = useCallback(async () => {
     setLoadingFirst(true);
@@ -916,13 +1001,23 @@ const loadDeliveryItems = useCallback(async () => {
     setHasMore(true);
 
     try {
-      const res = await listHistory({
-        limit: PAGE_LIMIT,
-        offset: 0,
-        outcome,
-        period,
-        q: searchQuery.trim() || undefined,
-      });
+      const res =
+        historyScope === "team"
+          ? await listTeamHistory({
+              limit: PAGE_LIMIT,
+              offset: 0,
+              outcome,
+              period,
+              q: searchQuery.trim() || undefined,
+              actor_user_id: selectedTeamActorId,
+            })
+          : await listHistory({
+              limit: PAGE_LIMIT,
+              offset: 0,
+              outcome,
+              period,
+              q: searchQuery.trim() || undefined,
+            });
 
       const page = Array.isArray(res?.items) ? res.items : [];
 
@@ -940,7 +1035,7 @@ const loadDeliveryItems = useCallback(async () => {
     } finally {
       setLoadingFirst(false);
     }
-  }, [outcome, period, searchQuery, toast]);
+  }, [historyScope, outcome, period, searchQuery, selectedTeamActorId, toast]);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadFirstPage(), loadStats()]);
@@ -951,13 +1046,23 @@ const loadDeliveryItems = useCallback(async () => {
 
     setLoadingMore(true);
     try {
-      const res = await listHistory({
-        limit: PAGE_LIMIT,
-        offset,
-        outcome,
-        period,
-        q: searchQuery.trim() || undefined,
-      });
+      const res =
+        historyScope === "team"
+          ? await listTeamHistory({
+              limit: PAGE_LIMIT,
+              offset,
+              outcome,
+              period,
+              q: searchQuery.trim() || undefined,
+              actor_user_id: selectedTeamActorId,
+            })
+          : await listHistory({
+              limit: PAGE_LIMIT,
+              offset,
+              outcome,
+              period,
+              q: searchQuery.trim() || undefined,
+            });
 
       const page = Array.isArray(res?.items) ? res.items : [];
 
@@ -975,7 +1080,18 @@ const loadDeliveryItems = useCallback(async () => {
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, loadingMore, loadingFirst, offset, outcome, period, searchQuery, toast]);
+  }, [
+  historyScope,
+  hasMore,
+  loadingMore,
+  loadingFirst,
+  offset,
+  outcome,
+  period,
+  searchQuery,
+  selectedTeamActorId,
+  toast,
+]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1050,7 +1166,10 @@ const loadDeliveryItems = useCallback(async () => {
     setEmailBody("");
 
     try {
-      const detail = await getHistoryDetail(jid);
+      const detail =
+        historyScope === "team"
+          ? await getTeamHistoryDetail(jid)
+          : await getHistoryDetail(jid);
       
       const subj =
         detail?.job?.email_subject ??
@@ -1119,6 +1238,14 @@ latest_reply: r?.latest_reply || null,
   next: boolean,
   deliveryDate: string | null = item.delivery_date || null
 ) {
+
+    if (historyScope === "team") {
+    toast({
+      title: "История сотрудников открыта в режиме просмотра",
+      description: "Дату поставки и статус сделки меняет только исполнитель.",
+    });
+    return;
+  }
   const previousItems = items;
 
   setItems((current) =>
@@ -1190,6 +1317,14 @@ function patchDeliveryStatus(
 }
 
 async function handleToggleDelivery(item: HistoryListItem, next: boolean) {
+  if (historyScope === "team") {
+    toast({
+      title: "История сотрудников открыта в режиме просмотра",
+      description: "Статус поставки меняет только исполнитель.",
+    });
+    return;
+  }
+
   const previousItems = items;
   const previousDeliveryItems = deliveryItems;
   const optimisticDoneAt = next ? new Date().toISOString() : null;
@@ -1235,6 +1370,12 @@ async function handleToggleDelivery(item: HistoryListItem, next: boolean) {
     });
   }
 }
+
+useEffect(() => {
+  void loadStats();
+  void loadFirstPage();
+  void loadDeliveryItems();
+}, [loadStats, loadFirstPage, loadDeliveryItems]);
 
   const handleToggleQuote = useCallback(
     async (supplierId: string, backendResultId: number, next: boolean) => {
@@ -1621,12 +1762,43 @@ const handleUploadQuoteFile = useCallback(
 </Link>
 
             <h1 className="text-3xl font-semibold text-white">
-              История запросов
+              {historyScope === "team" ? "История сотрудников" : "История запросов"}
             </h1>
 
             <p className="mt-2 text-sm text-white/55">
-              Запросы, отправки, КП и сделки по вашему аккаунту.
+              {historyScope === "team"
+                ? "Запросы, отправки, КП и сделки менеджеров вашей команды."
+                : "Запросы, отправки, КП и сделки по вашему аккаунту."}
             </p>
+{teamMe?.can_view_team_history && (
+  <div className="mt-4 flex w-fit rounded-xl border border-white/10 bg-background/45 p-1">
+    <button
+      type="button"
+      onClick={() => setHistoryScope("personal")}
+      className={cn(
+        "h-9 rounded-lg px-4 text-sm font-semibold transition",
+        historyScope === "personal"
+          ? "bg-[#ffbf00] text-[#2b2100]"
+          : "text-white/70 hover:text-white"
+      )}
+    >
+      Моя история
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setHistoryScope("team")}
+      className={cn(
+        "h-9 rounded-lg px-4 text-sm font-semibold transition",
+        historyScope === "team"
+          ? "bg-[#ffbf00] text-[#2b2100]"
+          : "text-white/70 hover:text-white"
+      )}
+    >
+      История сотрудников
+    </button>
+  </div>
+)}
           </div>
 
           <Button
@@ -1664,6 +1836,7 @@ const handleUploadQuoteFile = useCallback(
     noteMode={deliveryNoteMode}
     allNotes={allDeliveryNotes}
     notesLoading={notesLoading}
+    readOnly={historyScope === "team"}
     onSelectDate={setSelectedDeliveryDate}
     onNoteChange={setDeliveryNote}
     onNoteModeChange={setDeliveryNoteMode}
@@ -1679,7 +1852,7 @@ const handleUploadQuoteFile = useCallback(
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold text-white">
-                Моя статистика
+                {historyScope === "team" ? "Статистика сотрудников" : "Моя статистика"}
               </h3>
               <BarChart3 className="h-4 w-4 text-white/45" />
             </div>
@@ -1773,63 +1946,99 @@ const handleUploadQuoteFile = useCallback(
           </div>
         </section>
 
-        <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {OUTCOMES.map((item) => {
-              const active = outcome === item.value;
-              const count =
-                item.value === "all"
-                  ? total || getFilterCount(stats, item.value)
-                  : getFilterCount(stats, item.value);
+<div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+  <div className="flex flex-wrap gap-2">
+    {OUTCOMES.map((item) => {
+      const active = outcome === item.value;
+      const count =
+        item.value === "all"
+          ? total || getFilterCount(stats, item.value)
+          : getFilterCount(stats, item.value);
 
-              return (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => {
-                    setItems([]);
-                    setTotal(0);
-                    setOffset(0);
-                    setHasMore(true);
-                    setOutcome(item.value);
-                  }} 
-                  className={cn(
-                    "inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm transition",
-                    active
-                      ? "border-[#ffbf00] bg-[#ffbf00]/10 text-[#ffbf00]"
-                      : "border-white/10 bg-background/45 text-white/70 hover:bg-white/10 hover:text-white"
-                  )}
-                >
-                  <span>{item.label}</span>
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs font-semibold",
-                      item.value === "deal"
-                        ? "bg-emerald-500/22 text-emerald-300"
-                        : item.value === "sent"
-                          ? "bg-[#ffbf00]/22 text-[#ffbf00]"
-                          : item.value === "not_sent"
-                            ? "bg-red-500/22 text-red-300"
-                            : "bg-blue-500/22 text-blue-300"
-                    )}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+      return (
+        <button
+          key={item.value}
+          type="button"
+          onClick={() => setOutcome(item.value)}
+          className={cn(
+            "inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm transition",
+            active
+              ? "border-[#ffbf00] bg-[#ffbf00]/10 text-[#ffbf00]"
+              : "border-white/10 bg-background/45 text-white/70 hover:bg-white/10 hover:text-white"
+          )}
+        >
+          <span>{item.label}</span>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-xs font-semibold",
+              item.value === "deal"
+                ? "bg-emerald-500/22 text-emerald-300"
+                : item.value === "sent"
+                  ? "bg-[#ffbf00]/22 text-[#ffbf00]"
+                  : item.value === "not_sent"
+                    ? "bg-red-500/22 text-red-300"
+                    : "bg-blue-500/22 text-blue-300"
+            )}
+          >
+            {count}
+          </span>
+        </button>
+      );
+    })}
+  </div>
 
-          <div className="relative w-full lg:w-[420px]">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
-            <Input
-              placeholder="Поиск по теме запроса..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 border-white/10 bg-background/45 pl-9 text-white placeholder:text-white/35 focus-visible:ring-primary/30"
-            />
-          </div>
-        </div>
+  <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-center">
+    {historyScope === "team" && (
+      <div className="relative w-full lg:w-[280px]">
+        <select
+          value={teamActorFilter}
+          onChange={(event) => setTeamActorFilter(event.target.value)}
+          className={cn(
+            "h-10 w-full rounded-xl border border-white/10 bg-background/45 px-3 text-sm text-white",
+            "outline-none transition hover:bg-white/10 focus:border-[#ffbf00]/55 focus:ring-2 focus:ring-[#ffbf00]/20"
+          )}
+          title="Фильтр по сотруднику"
+        >
+          <option value="all" className="bg-[#111827] text-white">
+            Все сотрудники
+          </option>
+
+          {teamMembers.map((member) => {
+            const name = [member.first_name, member.last_name]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+
+            const label =
+              member.role === "owner"
+                ? `${name || member.email} · Руководитель`
+                : `${name || member.email}`;
+
+            return (
+              <option
+                key={member.user_id || member.id}
+                value={String(member.user_id)}
+                className="bg-[#111827] text-white"
+              >
+                {label}
+              </option>
+            );
+          })}
+        </select>
+      </div>
+    )}
+
+    <div className="relative w-full lg:w-[420px]">
+      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+      <Input
+        placeholder="Поиск по теме запроса..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="h-10 border-white/10 bg-background/45 pl-9 text-white placeholder:text-white/35 focus-visible:ring-primary/30"
+      />
+    </div>
+  </div>
+</div>
 
         <div className="mt-4 space-y-3 pb-8">
           {loadingFirst && items.length === 0 ? (
@@ -1872,24 +2081,36 @@ const handleUploadQuoteFile = useCallback(
     {displayTitle(item)}
   </div>
 
-  {/* 2 строка: дата, время, режим поиска */}
-  <div className="mt-1 flex h-6 min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-sm text-white/55">
-    <span className="shrink-0">
-      {formatDateTime(item.created_at)}
-    </span>
+  {/* 2 строка: дата, время, режим поиска, менеджер */}
+<div className="mt-1 flex h-6 min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-sm text-white/55">
+  <span className="shrink-0">
+    {formatDateTime(item.created_at)}
+  </span>
 
-    <span className="shrink-0 text-white/25">•</span>
+  <span className="shrink-0 text-white/25">•</span>
 
-    <span
-      className={cn(
-        "inline-flex h-6 shrink-0 items-center justify-center rounded-md border px-2 text-[11px] font-semibold",
-        searchModeBadgeClass(item.search_mode, item.provider)
-      )}
-      title="Режим поиска"
-    >
-      {searchModeLabel(item.search_mode, item.provider)}
-    </span>
-  </div>
+  <span
+    className={cn(
+      "inline-flex h-6 shrink-0 items-center justify-center rounded-md border px-2 text-[11px] font-semibold",
+      searchModeBadgeClass(item.search_mode, item.provider)
+    )}
+    title="Режим поиска"
+  >
+    {searchModeLabel(item.search_mode, item.provider)}
+  </span>
+
+  {historyScope === "team" && item.actor_email && (
+    <>
+      <span className="shrink-0 text-white/25">•</span>
+      <span
+        className="min-w-0 truncate text-[#ffbf00]"
+        title={item.actor_email}
+      >
+        {item.actor_name || item.actor_email}
+      </span>
+    </>
+  )}
+</div>
 
   {/* 3 строка: наименование оборудования */}
   <div
@@ -2016,6 +2237,7 @@ const handleUploadQuoteFile = useCallback(
   <label className="flex items-center gap-3">
     <Checkbox
       checked={dealChecked}
+      disabled={historyScope === "team"}
       onCheckedChange={(checked) =>
         handleToggleDeal(item, checked === true, item.delivery_date || null)
       }
@@ -2039,7 +2261,7 @@ const handleUploadQuoteFile = useCallback(
       <Button
         type="button"
         variant="outline"
-        disabled={!dealChecked}
+        disabled={!dealChecked || historyScope === "team"}
         className={cn(
           "h-8 w-[150px] justify-between rounded-lg px-2.5 text-xs",
           "border border-white/10 bg-[#0f1724] text-white",
@@ -2050,7 +2272,11 @@ const handleUploadQuoteFile = useCallback(
           item.delivery_date &&
             "border-[#ffbf00]/35 bg-[rgba(255,191,0,0.08)] text-[#ffdf73]"
         )}
-        title="Дата поставки"
+        title={
+          historyScope === "team"
+            ? "Дату поставки меняет только исполнитель"
+            : "Дата поставки"
+        } 
       >
         <span className="truncate">
           {formatDeliveryDate(item.delivery_date)}
@@ -2075,6 +2301,7 @@ const handleUploadQuoteFile = useCallback(
         mode="single"
         selected={parseDeliveryDate(item.delivery_date)}
         onSelect={(selectedDate) => {
+          if (historyScope === "team") return;
           if (!selectedDate) return;
 
           handleToggleDeal(item, true, toDateOnlyString(selectedDate));
@@ -2117,10 +2344,12 @@ const handleUploadQuoteFile = useCallback(
         <button
           type="button"
           onClick={() => handleToggleDeal(item, true, toDateOnlyString(new Date()))}
+          disabled={historyScope === "team"}
           className="
             rounded-lg border border-white/10 bg-[#111a2a]
             px-3 py-1.5 text-xs text-white/70 transition
             hover:border-[#ffbf00]/40 hover:text-[#ffbf00]
+            disabled:cursor-not-allowed disabled:opacity-35
           "
         >
           Сегодня
@@ -2129,7 +2358,7 @@ const handleUploadQuoteFile = useCallback(
         <button
           type="button"
           onClick={() => handleToggleDeal(item, true, null)}
-          disabled={!item.delivery_date}
+          disabled={!item.delivery_date || historyScope === "team"}
           className="
             rounded-lg border border-white/10 bg-[#111a2a]
             px-3 py-1.5 text-xs text-white/70 transition
@@ -2203,11 +2432,14 @@ const handleUploadQuoteFile = useCallback(
                 onAdd={() => {}}
                 disabled={false}
                 readOnly={true}
-                onToggleQuote={handleToggleQuote}
-                onSetReplyStatus={handleSetReplyStatus}
-                onUploadQuoteFile={handleUploadQuoteFile}
-                onOpenQuoteFile={handleOpenQuoteFile}
-                onMarkSupplierDialogRead={handleMarkSupplierDialogRead}
+                historyScope={historyScope}
+                onToggleQuote={historyScope === "personal" ? handleToggleQuote : undefined}
+                onSetReplyStatus={historyScope === "personal" ? handleSetReplyStatus : undefined}
+                onUploadQuoteFile={historyScope === "personal" ? handleUploadQuoteFile : undefined}
+                onOpenQuoteFile={historyScope === "personal" ? handleOpenQuoteFile : undefined}
+                onMarkSupplierDialogRead={
+                  historyScope === "personal" ? handleMarkSupplierDialogRead : undefined
+                }
               />
             )}
           </div>

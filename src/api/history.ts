@@ -22,6 +22,10 @@ export type HistoryListItem = {
   search_mode?: "cis" | "international" | string | null;
   time_ms: number;
   created_at: string;
+ 
+  actor_user_id?: number | null;
+  actor_email?: string | null;
+  actor_name?: string | null;
 
   results_count: number;
   email_jobs_count: number;
@@ -172,6 +176,10 @@ export type HistoryDetailResponse = {
     search_mode?: "cis" | "international" | string | null;
     time_ms: number;
     created_at: string;
+
+    actor_user_id?: number | null;
+    actor_email?: string | null;
+    actor_name?: string | null;
 
     status: string;
     error_message?: string | null;

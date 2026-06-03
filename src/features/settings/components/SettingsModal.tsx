@@ -17,6 +17,7 @@ import {
   Wallet,
   ShieldCheck,
   Clock3,
+  Users,
 } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 
@@ -37,6 +38,17 @@ import {
   type BillingMe,
   type BillingPlanItem,
 } from "@/api/billing";
+
+import {
+  addTeamManager,
+  createTeam,
+  fetchTeamMe,
+  listTeamManagers,
+  removeTeamManager,
+  type TeamMe,
+  type TeamMember,
+} from "@/api/team";
+
 import { clearAuthToken } from "@/shared/utils/auth";
 
 export const STORAGE_KEY = "smartoffer.settings";
@@ -171,7 +183,7 @@ export function SettingsModal({
   const { toast } = useToast();
 
   const [expanded, setExpanded] = React.useState<
-    "auth" | "billing" | "template" | "danger" | null
+    "auth" | "billing" | "team" | "template" | "danger" | null
   >("auth");
 
   const [state, setState] = React.useState<SettingsState>(() => loadSettings());
@@ -204,6 +216,13 @@ export function SettingsModal({
   const [billing, setBilling] = React.useState<BillingMe | null>(null);
   const [billingPlans, setBillingPlans] = React.useState<BillingPlanItem[]>([]);
 
+  const [teamMe, setTeamMe] = React.useState<TeamMe | null>(null);
+  const [teamMembers, setTeamMembers] = React.useState<TeamMember[]>([]);
+  const [teamEmail, setTeamEmail] = React.useState("");
+  const [teamLoading, setTeamLoading] = React.useState(false);
+  const [teamSaving, setTeamSaving] = React.useState(false);
+  const [teamRemovingId, setTeamRemovingId] = React.useState<number | null>(null);
+
   const [smtpStatus, setSmtpStatus] = React.useState<
     { state: "idle" | "ok" | "error"; message?: string }
   >({ state: "idle" });
@@ -227,7 +246,15 @@ export function SettingsModal({
   const currentPlanCode = billing?.current_plan_code ?? null;
   const requestsRemaining = Math.max(Number(billing?.requests_remaining ?? 0), 0);
   const requestsLimit = Math.max(Number(billing?.requests_limit ?? 0), 0);
-const billingPeriodLabel = getBillingPeriodLabel(billing);
+  const billingPeriodLabel = getBillingPeriodLabel(billing);
+  const isTeamBilling = billing?.billing_source === "team_business";
+
+  const isActiveBusinessPlan =
+    billing?.current_plan_code === "max_1000" && billing?.status === "active";
+
+  const canShowTeamSection = Boolean(isActiveBusinessPlan || teamMe?.has_team);
+  const canManageTeam = Boolean(teamMe?.can_manage_team);
+  const isTeamManager = teamMe?.role === "manager";
 
   const refreshBilling = React.useCallback(async (): Promise<BillingMe | null> => {
   try {
@@ -250,6 +277,27 @@ const billingPeriodLabel = getBillingPeriodLabel(billing);
     setLoadingBilling(false);
   }
 }, []);
+
+  const refreshTeam = React.useCallback(async () => {
+    try {
+      setTeamLoading(true);
+
+      const me = await fetchTeamMe();
+      setTeamMe(me);
+
+      if (me.can_manage_team) {
+        const members = await listTeamManagers();
+        setTeamMembers(Array.isArray(members.items) ? members.items : []);
+      } else {
+        setTeamMembers([]);
+      }
+    } catch {
+      setTeamMe(null);
+      setTeamMembers([]);
+    } finally {
+      setTeamLoading(false);
+    }
+  }, []);
 
   React.useEffect(() => {
     if (!open) return;
@@ -311,7 +359,8 @@ const billingPeriodLabel = getBillingPeriodLabel(billing);
       });
 
     void refreshBilling();
-  }, [open, toast, refreshBilling]);
+    void refreshTeam();
+  }, [open, toast, refreshBilling, refreshTeam]);
 
 React.useEffect(() => {
   if (!open) return;
@@ -617,6 +666,98 @@ if (!offerAccepted) {
     }
   }
 
+async function handleCreateTeam() {
+  if (teamSaving) return;
+
+  setTeamSaving(true);
+
+  try {
+    await createTeam({ name: "Команда SmartOffer" });
+    await refreshTeam();
+
+    toast({
+      title: "Команда создана",
+      description: "Теперь можно добавить менеджеров.",
+    });
+  } catch (e) {
+    toast({
+      title: "Не удалось создать команду",
+      description: e instanceof Error ? e.message : "Ошибка создания команды",
+      variant: "destructive",
+    });
+  } finally {
+    setTeamSaving(false);
+  }
+}
+
+async function handleAddTeamManager() {
+  const email = teamEmail.trim().toLowerCase();
+
+  if (!email) {
+    toast({
+      title: "Введите email менеджера",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (teamSaving) return;
+
+  setTeamSaving(true);
+
+  try {
+    await addTeamManager(email);
+    setTeamEmail("");
+    await refreshTeam();
+
+    toast({
+      title: "Менеджер добавлен",
+      description: email,
+    });
+  } catch (e) {
+    toast({
+      title: "Не удалось добавить менеджера",
+      description:
+        e instanceof Error
+          ? e.message
+          : "Проверьте, что пользователь уже зарегистрирован в SmartOffer.",
+      variant: "destructive",
+    });
+  } finally {
+    setTeamSaving(false);
+  }
+}
+
+async function handleRemoveTeamManager(member: TeamMember) {
+  if (member.role === "owner") return;
+
+  const confirmed = window.confirm(
+    `Отключить менеджера ${member.email} от команды?`
+  );
+
+  if (!confirmed) return;
+
+  setTeamRemovingId(member.id);
+
+  try {
+    await removeTeamManager(member.id);
+    await refreshTeam();
+
+    toast({
+      title: "Менеджер отключен",
+      description: member.email,
+    });
+  } catch (e) {
+    toast({
+      title: "Не удалось отключить менеджера",
+      description: e instanceof Error ? e.message : "Ошибка удаления менеджера",
+      variant: "destructive",
+    });
+  } finally {
+    setTeamRemovingId(null);
+  }
+}
+
   async function handleDeleteAccount() {
     if (!canDeleteAccount || deletingAccount) return;
 
@@ -675,7 +816,7 @@ if (!offerAccepted) {
             >
               <span className="flex items-center gap-2 font-medium">
                 <Mail className="h-4 w-4 text-muted-foreground" />
-                Настройка почты (SMTP)
+                Настройка почты (SMTP/IMAP)
               </span>
               <ChevronDown
                 className={`h-4 w-4 transition-transform ${expanded === "auth" ? "rotate-180" : ""}`}
@@ -929,145 +1070,353 @@ if (!offerAccepted) {
               />
             </button>
 
-            {expanded === "billing" && (
-              <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-                {loadingBilling ? (
-                  <div className="text-sm text-muted-foreground">Загрузка данных по тарифу...</div>
-                ) : !billing ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-muted-foreground">
-                    Не удалось загрузить данные по тарифу. Попробуйте открыть окно заново.
-                  </div>
-                ) : (
-                  <>
-                    <div className={`rounded-lg border p-4 ${getBillingTone(billing.status, billing.requests_remaining)}`}>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Текущий тариф
-                          </div>
-                          <div className="text-lg font-semibold text-foreground">
-                            {billing.current_plan_name || "Не активирован"}
-                          </div>
-                        </div>
+{expanded === "billing" && (
+  <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+    {loadingBilling ? (
+      <div className="text-sm text-muted-foreground">
+        Загрузка данных по тарифу...
+      </div>
+    ) : !billing ? (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-muted-foreground">
+        Не удалось загрузить данные по тарифу. Попробуйте открыть окно заново.
+      </div>
+    ) : (
+      <>
+        <div
+          className={`rounded-lg border p-4 ${getBillingTone(
+            billing.status,
+            billing.requests_remaining
+          )}`}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Текущий тариф
+              </div>
+              <div className="text-lg font-semibold text-foreground">
+                {billing.current_plan_name || "Не активирован"}
+              </div>
+            </div>
 
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Остаток запросов
-                          </div>
-                          <div className="text-2xl font-bold text-foreground">
-                            {requestsRemaining} / {requestsLimit}
-                          </div>
-                        </div>
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Остаток запросов
+              </div>
+              <div className="text-2xl font-bold text-foreground">
+                {requestsRemaining} / {requestsLimit}
+              </div>
+            </div>
 
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Статус доступа
-                          </div>
-                          <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                            <Clock3 className="h-4 w-4 text-primary" />
-                            {getBillingStatusLabel(billing.status)}
-                          </div>
-                        </div>
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Статус доступа
+              </div>
+              <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                <Clock3 className="h-4 w-4 text-primary" />
+                {getBillingStatusLabel(billing.status)}
+              </div>
+            </div>
 
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Почта
-                          </div>
-                          <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                            <ShieldCheck className="h-4 w-4 text-primary" />
-                            {getDomainTypeLabel(billing.email_domain_type)}
-                          </div>
-                        </div>
+            <div className="space-y-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Почта
+              </div>
+              <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                {getDomainTypeLabel(billing.email_domain_type)}
+              </div>
+            </div>
+          </div>
+
+          {isTeamBilling && billing.billing_owner_email && (
+            <div className="mt-4 flex items-start gap-3 rounded-lg border border-primary/25 bg-background/50 px-3 py-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Users className="h-4 w-4" />
+              </div>
+
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  Командный лимит
+                </div>
+
+                <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Используется тариф руководителя{" "}
+                  <span className="font-medium text-foreground">
+                    {billing.billing_owner_email}
+                  </span>
+                  . Ваши поисковые запросы расходуют общий лимит команды.
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+              Срок действия
+            </div>
+            <div className="mt-1 text-sm font-medium text-foreground">
+              {billingPeriodLabel}
+            </div>
+          </div>
+
+          <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
+            {billing.has_verified_email ? (
+              billing.email_domain_type === "public" ? (
+                <>
+                  Подтверждённый email:{" "}
+                  <span className="text-foreground">
+                    {billing.verified_from_email}
+                  </span>
+                  <br />
+                  Для личной почты SMTP уже сохранён, но Free 50 недоступен.
+                  Поиск будет доступен после подключения платного тарифа.
+                </>
+              ) : (
+                <>
+                  Подтверждённый email:{" "}
+                  <span className="text-foreground">
+                    {billing.verified_from_email}
+                  </span>
+                </>
+              )
+            ) : (
+              "Чтобы получить Free 50, подключите и подтвердите корпоративную почту в блоке SMTP/IMAP."
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="text-sm font-medium text-foreground">
+            Доступные тарифы
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {billingPlans.map((plan) => {
+              const isCurrent = currentPlanCode === plan.code;
+              const isDisabled =
+                plan.corporate_only &&
+                billing?.email_domain_type !== "corporate";
+
+              return (
+                <div
+                  key={plan.code}
+                  className={`rounded-lg border p-4 ${
+                    isCurrent
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-border bg-background"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">
+                        {plan.name}
                       </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {plan.requests_limit} запросов
+                      </div>
+                    </div>
 
-<div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-  <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-    Срок действия
-  </div>
-  <div className="mt-1 text-sm font-medium text-foreground">
-    {billingPeriodLabel}
-  </div>
-</div>
+                    {isCurrent ? (
+                      <span className="text-[11px] rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-primary">
+                        Текущий
+                      </span>
+                    ) : null}
+                  </div>
 
-<div className="mt-3 text-sm text-muted-foreground leading-relaxed">
-  {billing.has_verified_email ? (
-                          billing.email_domain_type === "public" ? (
-                            <>
-                              Подтвержденный email:{" "}
-                              <span className="text-foreground">{billing.verified_from_email}</span>
-                              <br />
-                              Для личной почты SMTP уже сохранён, но Free 50 недоступен.
-                              Поиск будет доступен после подключения платного тарифа.
-                            </>
-                          ) : (
-                            <>
-                              Подтвержденный email:{" "}
-                              <span className="text-foreground">{billing.verified_from_email}</span>
-                            </>
-                          )
-                        ) : (
-                          "Чтобы получить Free 50, подключите и подтвердите корпоративную почту в блоке SMTP."
+                  <div className="mt-4 text-lg font-bold text-foreground">
+                    {plan.is_free
+                      ? "0 ₽"
+                      : `${plan.price_rub.toLocaleString("ru-RU")} ₽`}
+                  </div>
+
+                  <div className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {plan.corporate_only
+                      ? "Доступен только после подтверждения корпоративной почты."
+                      : plan.is_free
+                        ? "Пробный тариф для проверки сервиса."
+                        : isCurrent
+                          ? "Активный платный тариф."
+                          : "Платный тариф. Оплату можно оформить через раздел «Цены»."}
+                  </div>
+
+                  {isDisabled ? (
+                    <div className="mt-3 text-xs text-yellow-300/80">
+                      Для этого тарифа требуется подходящий тип доступа.
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </>
+    )}
+  </div>
+)}
+
+            {canShowTeamSection && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setExpanded((p) => (p === "team" ? null : "team"))}
+                  className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
+                >
+                  <span className="flex items-center gap-2 font-medium">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    Команда
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${
+                      expanded === "team" ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {expanded === "team" && (
+                  <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+                    {teamLoading ? (
+                      <div className="text-sm text-muted-foreground">
+                        Загрузка команды...
+                      </div>
+                    ) : isTeamManager ? (
+                      <div className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-muted-foreground leading-relaxed">
+                        Вы подключены к тарифу Бизнес руководителя{" "}
+                        {teamMe?.owner_email ? (
+                          <span className="text-foreground">{teamMe.owner_email}</span>
+                        ) : null}
+                        . Ваши запросы расходуют общий лимит руководителя. История сотрудников и управление командой доступны только руководителю.
+                      </div>
+                    ) : !teamMe?.has_team ? (
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-muted-foreground leading-relaxed">
+                          Команда доступна на тарифе Бизнес. Руководитель сможет добавить менеджеров, а их запросы будут расходовать общий лимит тарифа.
+                        </div>
+
+                        <Button
+                          type="button"
+                          onClick={handleCreateTeam}
+                          disabled={!isActiveBusinessPlan || teamSaving}
+                          className="w-full"
+                        >
+                          {teamSaving ? "Создаем команду..." : "Создать команду"}
+                        </Button>
+
+                        {!isActiveBusinessPlan && (
+                          <div className="text-xs text-yellow-300/80">
+                            Для создания команды нужен активный тариф Бизнес.
+                          </div>
                         )}
                       </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="text-sm font-medium text-foreground">Доступные тарифы</div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {billingPlans.map((plan) => {
-                          const isCurrent = currentPlanCode === plan.code;
-                          const isDisabled = plan.corporate_only && billing?.email_domain_type !== "corporate";
-
-                          return (
-                            <div
-                              key={plan.code}
-                              className={`rounded-lg border p-4 ${
-                                isCurrent
-                                  ? "border-primary/40 bg-primary/10"
-                                  : "border-border bg-background"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="text-sm font-semibold text-foreground">
-                                    {plan.name}
-                                  </div>
-                                  <div className="mt-1 text-xs text-muted-foreground">
-                                    {plan.requests_limit} запросов
-                                  </div>
-                                </div>
-
-                                {isCurrent ? (
-                                  <span className="text-[11px] rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-primary">
-                                    Текущий
-                                  </span>
-                                ) : null}
-                              </div>
-
-                              <div className="mt-4 text-lg font-bold text-foreground">
-                                {plan.is_free ? "0 ₽" : `${plan.price_rub.toLocaleString("ru-RU")} ₽`}
-                              </div>
-
-                              <div className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                                {plan.corporate_only
-                                  ? "Доступен только после подтверждения корпоративной почты."
-                                  : "Платный тариф. Подключение оплаты будет доступно на следующем этапе."}
-                              </div>
-
-                              {isDisabled ? (
-                                <div className="mt-3 text-xs text-yellow-300/80">
-                                  Для этого тарифа требуется подходящий тип доступа.
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
+                    ) : !canManageTeam ? (
+                      <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-muted-foreground leading-relaxed">
+                        Командные функции временно недоступны. Проверьте активность тарифа Бизнес у руководителя.
                       </div>
-                    </div>
-                  </>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                              Роль
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">
+                              Руководитель
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                              Участников
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">
+                              {teamMembers.length}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="team-manager-email">Добавить менеджера</Label>
+
+                          <div className="flex gap-2">
+                            <Input
+                              id="team-manager-email"
+                              value={teamEmail}
+                              onChange={(e) => setTeamEmail(e.target.value)}
+                              placeholder="manager@company.ru"
+                              type="email"
+                              disabled={teamSaving}
+                            />
+
+                            <Button
+                              type="button"
+                              onClick={handleAddTeamManager}
+                              disabled={teamSaving || !teamEmail.trim()}
+                            >
+                              Добавить
+                            </Button>
+                          </div>
+
+                          <p className="text-xs text-muted-foreground">
+                            Менеджер должен быть уже зарегистрирован в SmartOffer. Он будет использовать общий лимит тарифа Бизнес, но работать со своей SMTP/IMAP-почтой.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium text-foreground">
+                            Участники команды
+                          </div>
+
+                          {teamMembers.length === 0 ? (
+                            <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-muted-foreground">
+                              Пока нет участников.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {teamMembers.map((member) => {
+                                const isOwner = member.role === "owner";
+                                const name = [member.first_name, member.last_name]
+                                  .filter(Boolean)
+                                  .join(" ")
+                                  .trim();
+
+                                return (
+                                  <div
+                                    key={member.id}
+                                    className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-background px-3 py-2"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-medium text-foreground">
+                                        {name || member.email}
+                                      </div>
+                                      <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                        <span className="truncate">{member.email}</span>
+                                        <span>•</span>
+                                        <span>{isOwner ? "Руководитель" : "Менеджер"}</span>
+                                      </div>
+                                    </div>
+
+                                    {!isOwner && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleRemoveTeamManager(member)}
+                                        disabled={teamRemovingId === member.id}
+                                        className="shrink-0 text-destructive hover:text-destructive"
+                                      >
+                                        {teamRemovingId === member.id ? "..." : "Отключить"}
+                                      </Button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
-              </div>
+              </>
             )}
 
             <button

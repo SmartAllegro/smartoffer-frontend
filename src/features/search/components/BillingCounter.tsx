@@ -17,9 +17,13 @@ export function BillingCounter({
   const remaining = Math.max(Number(billing?.requests_remaining ?? 0), 0);
   const limit = Math.max(Number(billing?.requests_limit ?? 0), 0);
 
+  const isTeamBilling = billing?.billing_source === "team_business";
+
   const title = !isAuthenticated
     ? "Тариф"
-    : billing?.current_plan_name || "Тариф";
+    : isTeamBilling
+      ? billing?.current_plan_name || "Бизнес"
+      : billing?.current_plan_name || "Тариф";
 
   const value = !isAuthenticated
     ? "0/0"
@@ -29,11 +33,13 @@ export function BillingCounter({
 
   const hint = !isAuthenticated
     ? "Настройте почту"
-    : billing?.email_domain_type === "corporate"
-      ? "Запросов"
-      : billing?.email_domain_type === "public"
+    : isTeamBilling
+      ? "Лимит команды"
+      : billing?.email_domain_type === "corporate"
         ? "Запросов"
-        : "Настройте почту";
+        : billing?.email_domain_type === "public"
+          ? "Запросов"
+          : "Настройте почту";
 
   return (
     <button

@@ -48,6 +48,8 @@ import {
   type SupplierReplyItem,
 } from "@/api/history";
 
+import { getTeamResultReplies } from "@/api/team";
+
 interface SupplierTableProps {
   suppliers: Supplier[];
   onToggleSelect: (id: string) => void;
@@ -55,6 +57,7 @@ interface SupplierTableProps {
   onAdd: (email: string) => void;
   disabled?: boolean;
   readOnly?: boolean;
+  historyScope?: "personal" | "team";
 
   onToggleQuote?: (
     supplierId: string,
@@ -524,6 +527,7 @@ export function SupplierTable({
   onToggleSelect,
   onDelete,
   onAdd,
+  historyScope = "personal",
   disabled = false,
   readOnly = false,
   onToggleQuote,
@@ -597,10 +601,17 @@ async function openSupplierDialog(supplier: Supplier) {
   setDialogReplies([]);
 
   try {
-    const response = await getResultReplies(supplier.backend_result_id);
+    const response =
+      historyScope === "team"
+        ? await getTeamResultReplies(supplier.backend_result_id)
+        : await getResultReplies(supplier.backend_result_id);
+
     setDialogReplies(Array.isArray(response.items) ? response.items : []);
 
-    if (Number(supplier.unread_supplier_replies_count || 0) > 0) {
+    if (
+      historyScope === "personal" &&
+      Number(supplier.unread_supplier_replies_count || 0) > 0
+    ) {
       await onMarkSupplierDialogRead?.(supplier.id, supplier.backend_result_id);
     }
   } catch (e) {
@@ -613,6 +624,13 @@ async function openSupplierDialog(supplier: Supplier) {
 }
 
 async function openDialogAttachment(file: ReplyAttachmentItem) {
+  if (historyScope === "team") {
+    setDialogError(
+      "Открытие файлов КП в истории сотрудников будет подключено следующим этапом."
+    );
+    return;
+  }
+
   try {
     const result = await downloadQuoteFile(file.id);
 

@@ -37,6 +37,10 @@ export type BillingMe = {
   activated_at: string | null;
   expires_at: string | null;
   expired_at: string | null;
+
+  billing_source?: "personal" | "team_business" | string;
+  billing_owner_user_id?: number | null;
+  billing_owner_email?: string | null;
 };
 
 export async function fetchBillingPlans(): Promise<BillingPlansResponse> {
