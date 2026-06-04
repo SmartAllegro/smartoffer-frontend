@@ -158,8 +158,21 @@ useEffect(() => {
     };
   }, []);
 
+const canPollChatUnreadCount = useMemo(() => {
+  if (!me || !billing) return false;
+
+  const planCode = billing.current_plan_code || "";
+  const status = billing.status || "";
+  const source = billing.billing_source || "";
+
+  return (
+    status === "active" &&
+    (planCode === "max_1000" || source === "team_business")
+  );
+}, [me, billing]);
+
 const loadChatUnreadCount = useCallback(async () => {
-  if (!me) {
+  if (!canPollChatUnreadCount) {
     setChatUnreadCount(0);
     return;
   }
@@ -170,19 +183,19 @@ const loadChatUnreadCount = useCallback(async () => {
   } catch {
     setChatUnreadCount(0);
   }
-}, [me]);
+}, [canPollChatUnreadCount]);
 
 useEffect(() => {
   loadChatUnreadCount().catch(() => {});
 
-  if (!me) return;
+  if (!canPollChatUnreadCount) return;
 
   const timer = window.setInterval(() => {
     loadChatUnreadCount().catch(() => {});
   }, 10000);
 
   return () => window.clearInterval(timer);
-}, [me, loadChatUnreadCount]);
+}, [canPollChatUnreadCount, loadChatUnreadCount]);
 
   const selectedCount = suppliers.filter((s) => s.selected && Boolean(s.contact?.trim())).length;
 
