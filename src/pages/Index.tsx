@@ -424,37 +424,58 @@ useEffect(() => {
                   </div>
 
                   <div className="flex flex-col items-end gap-3">
-                    {!me ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 w-[132px] justify-center"
-                        onClick={() => setAuthOpen(true)}
-                      >
-                        <LogIn className="mr-2 h-4 w-4" />
-                        Войти
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-9 w-9"
-                        onClick={handleLogout}
-                        title="Выйти"
-                        aria-label="Выйти"
-                      >
-                        <LogOut className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+  {me && (
+    <Button
+      variant="outline"
+      size="sm"
+      className="relative h-9 flex-1 justify-center"
+      onClick={() => navigate("/chat")}
+      title="Чат сотрудников"
+    >
+      <MessageCircle className="mr-2 h-4 w-4" />
+      Чат
 
-                    <BillingCounter
-                      billing={billing}
-                      loading={billingLoading}
-                      isAuthenticated={!!me}
-                      onClick={() => setSettingsOpen(true)}
-                    />
+      {chatUnreadCount > 0 && (
+        <span className="absolute -right-1.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-[#2b2100] shadow-[0_0_0_2px_rgba(17,24,39,1)]">
+          {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+        </span>
+      )}
+    </Button>
+  )}
 
-                    <Button
+  {!me ? (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-9 flex-1 justify-center"
+      onClick={() => setAuthOpen(true)}
+    >
+      <LogIn className="mr-2 h-4 w-4" />
+      Войти
+    </Button>
+  ) : (
+    <Button
+      variant="outline"
+      size="icon"
+      className="h-9 w-9 shrink-0"
+      onClick={handleLogout}
+      title="Выйти"
+      aria-label="Выйти"
+    >
+      <LogOut className="h-4 w-4" />
+    </Button>
+  )}
+</div>
+
+<BillingCounter
+  billing={billing}
+  loading={billingLoading}
+  isAuthenticated={!!me}
+  onClick={() => setSettingsOpen(true)}
+/>
+
+<Button
   variant="outline"
   onClick={() => navigate("/history")}
   className="w-[132px] shrink-0 justify-center"

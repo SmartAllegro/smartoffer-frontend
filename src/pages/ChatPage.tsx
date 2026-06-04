@@ -109,6 +109,58 @@ function shortText(value?: string | null) {
   return `${text.slice(0, 70)}…`;
 }
 
+function normalizeChatAccessError(error: unknown): string {
+  const businessMessage = "Для использования чата подключите тариф Бизнес.";
+
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+
+  if (!raw.trim()) {
+    return businessMessage;
+  }
+
+  if (
+    raw.includes("API error 403") ||
+    raw.includes("Чат доступен только участникам команды") ||
+    raw.includes("Чат доступен только при активном тарифе Бизнес") ||
+    raw.includes("Команда неактивна")
+  ) {
+    return businessMessage;
+  }
+
+  const match = raw.match(/^API error\s+\d+:\s*([\s\S]+)$/);
+
+  if (match?.[1]) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const detail = parsed?.detail;
+
+      if (
+        typeof detail === "string" &&
+        (
+          detail.includes("Чат доступен только участникам команды") ||
+          detail.includes("Чат доступен только при активном тарифе Бизнес") ||
+          detail.includes("Команда неактивна")
+        )
+      ) {
+        return businessMessage;
+      }
+
+      if (typeof detail === "string" && detail.trim()) {
+        return detail.trim();
+      }
+    } catch {
+      // оставляем fallback ниже
+    }
+  }
+
+  return raw;
+}
+
 export default function ChatPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -204,12 +256,7 @@ export default function ChatPage() {
       } catch (e) {
         if (!alive) return;
 
-        const message =
-          e instanceof Error
-            ? e.message
-            : "Не удалось загрузить чат сотрудников";
-
-        setAccessError(message);
+        setAccessError(normalizeChatAccessError(e));
       } finally {
         if (alive) setBootLoading(false);
       }
@@ -439,28 +486,30 @@ export default function ChatPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-        <header className="mb-5 flex flex-col gap-5 lg:flex-row lg:items-start">
-  <div className="flex items-start gap-5">
-    <RadarLogo className="h-20 w-20 sm:h-24 sm:w-24" />
+        <header className="mb-5">
+  <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+    <div className="flex justify-center sm:block">
+      <RadarLogo className="h-24 w-24 shrink-0 sm:h-28 sm:w-28 lg:h-32 lg:w-32" />
+    </div>
 
-    <div>
-      <div className="text-4xl font-bold tracking-tight text-primary sm:text-5xl">
+    <div className="min-w-0 flex-1 text-center sm:text-left">
+      <div className="break-words text-4xl font-bold leading-none tracking-tight text-primary sm:text-5xl lg:text-6xl">
         Smartoffer.pro
       </div>
 
-      <div className="mt-2 max-w-xl text-2xl font-semibold leading-tight text-white">
+      <div className="mt-3 text-2xl font-semibold leading-tight text-white sm:text-3xl">
         Чат сотрудников
       </div>
 
-      <div className="mt-2 text-sm text-muted-foreground">
+      <div className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
         Внутренние текстовые диалоги команды SmartOffer
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-5 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <Button
           variant="outline"
           onClick={() => navigate("/")}
-          className="h-11 min-w-[120px]"
+          className="h-11 w-full justify-center sm:w-auto sm:min-w-[120px]"
         >
           Главная
         </Button>
@@ -468,18 +517,19 @@ export default function ChatPage() {
         <Button
           variant="outline"
           onClick={() => navigate("/history")}
-          className="h-11 min-w-[120px]"
+          className="h-11 w-full justify-center sm:w-auto sm:min-w-[120px]"
         >
           <History className="mr-2 h-4 w-4" />
           История
         </Button>
 
         <Button
-          className="h-11 min-w-[120px]"
+          className="h-11 w-full justify-center sm:w-auto sm:min-w-[120px]"
           onClick={() => refreshSidebar().catch(() => {})}
         >
           <MessageCircle className="mr-2 h-4 w-4" />
           Чат
+
           {unreadTotal > 0 && (
             <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2b2100] px-1.5 text-xs font-bold text-primary">
               {unreadTotal}
