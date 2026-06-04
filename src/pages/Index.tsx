@@ -7,7 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
 import { BillingCounter } from '@/features/search/components/BillingCounter';
 import { Button } from '@/shared/ui/button';
-import { History, LogIn, LogOut } from 'lucide-react';
+import { History, LogIn, LogOut, MessageCircle } from 'lucide-react';
+import { getChatUnreadCount } from "@/api/chat";
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
 import { searchSuppliers, type SearchMode } from "@/api/search";
 import { fetchBillingMe, type BillingMe } from '@/api/billing';
@@ -54,11 +55,13 @@ export default function Index() {
   const [me, setMe] = useState<UserMe | null>(null);
   
   const [billing, setBilling] = useState<BillingMe | null>(null);
-const [billingLoading, setBillingLoading] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
 
-const [searchMode, setSearchMode] = useState<SearchMode>("cis");
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
-const canUseInternationalSearch = useMemo(() => {
+  const [searchMode, setSearchMode] = useState<SearchMode>("cis");
+
+  const canUseInternationalSearch = useMemo(() => {
   const planCode = billing?.current_plan_code || "";
   return ["free_50", "pro_500", "max_1000"].includes(planCode);
 }, [billing?.current_plan_code]);
@@ -67,6 +70,7 @@ const handleLogout = useCallback(() => {
   clearAuthToken();
   setMe(null);
   setBilling(null);
+  setChatUnreadCount(0);
   setSuppliers([]);
   setRequestId("");
   setSearchJobId(null);
@@ -153,6 +157,32 @@ useEffect(() => {
       cancelled = true;
     };
   }, []);
+
+const loadChatUnreadCount = useCallback(async () => {
+  if (!me) {
+    setChatUnreadCount(0);
+    return;
+  }
+
+  try {
+    const res = await getChatUnreadCount();
+    setChatUnreadCount(Number(res.unread_count || 0));
+  } catch {
+    setChatUnreadCount(0);
+  }
+}, [me]);
+
+useEffect(() => {
+  loadChatUnreadCount().catch(() => {});
+
+  if (!me) return;
+
+  const timer = window.setInterval(() => {
+    loadChatUnreadCount().catch(() => {});
+  }, 10000);
+
+  return () => window.clearInterval(timer);
+}, [me, loadChatUnreadCount]);
 
   const selectedCount = suppliers.filter((s) => s.selected && Boolean(s.contact?.trim())).length;
 
@@ -435,46 +465,67 @@ useEffect(() => {
                   </div>
                 </div>
 
-                <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-0 lg:flex-col lg:items-end lg:gap-5">
-                  {!me ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-9 w-[132px] justify-center"
-                      onClick={() => setAuthOpen(true)}
-                    >
-                      <LogIn className="mr-2 h-4 w-4" />
-                      Войти
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-9 w-9"
-                      onClick={handleLogout}
-                      title="Выйти"
-                      aria-label="Выйти"
-                    >
-                      <LogOut className="h-4 w-4" />
-                    </Button>
-                  )}
+               <div className="hidden lg:flex lg:absolute lg:right-0 lg:top-0 lg:flex-col lg:items-end lg:gap-5">
+  <div className="flex items-center gap-2">
+    {me && (
+      <Button
+        variant="outline"
+        size="sm"
+        className="relative h-9 w-[92px] justify-center"
+        onClick={() => navigate("/chat")}
+        title="Чат сотрудников"
+      >
+        <MessageCircle className="mr-2 h-4 w-4" />
+        Чат
 
-                  <BillingCounter
-                    billing={billing}
-                    loading={billingLoading}
-                    isAuthenticated={!!me}
-                    onClick={() => setSettingsOpen(true)}
-                  />
+        {chatUnreadCount > 0 && (
+          <span className="absolute -right-1.5 -top-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-bold text-[#2b2100] shadow-[0_0_0_2px_rgba(17,24,39,1)]">
+            {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+          </span>
+        )}
+      </Button>
+    )}
 
-                  <Button
-  variant="outline"
-  onClick={() => navigate("/history")}
-  className="w-[132px] shrink-0 justify-center"
->
-  <History className="w-4 h-4 mr-2" />
-  История
-</Button>
-                </div>
+    {!me ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-9 w-[132px] justify-center"
+        onClick={() => setAuthOpen(true)}
+      >
+        <LogIn className="mr-2 h-4 w-4" />
+        Войти
+      </Button>
+    ) : (
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-9 w-9"
+        onClick={handleLogout}
+        title="Выйти"
+        aria-label="Выйти"
+      >
+        <LogOut className="h-4 w-4" />
+      </Button>
+    )}
+  </div>
+
+  <BillingCounter
+    billing={billing}
+    loading={billingLoading}
+    isAuthenticated={!!me}
+    onClick={() => setSettingsOpen(true)}
+  />
+
+  <Button
+    variant="outline"
+    onClick={() => navigate("/history")}
+    className="w-[132px] shrink-0 justify-center"
+  >
+    <History className="w-4 h-4 mr-2" />
+    История
+  </Button>
+</div>
               </div>
             </div>
           </div>
