@@ -129,14 +129,14 @@ function supplierInnPlaceholder(supplier: Supplier): {
   if (!key.trim()) {
     return {
       inn: "—",
-      score: "ЗЧБ: —/10",
+      score: "Индекс риска: —/100",
       risk: "Ожидает данных",
     };
   }
 
   return {
     inn: "Будет найден по API",
-    score: "ЗЧБ: —/10",
+    score: "Индекс риска: —/100",
     risk: "API не подключен",
   };
 }
@@ -799,7 +799,7 @@ async function openDialogAttachment(file: ReplyAttachmentItem) {
 
 {analysisMode ? (
   <TableHead className="text-left text-muted-foreground font-normal">
-    ИНН / За Честный Бизнес
+    ИНН / Индекс риска
   </TableHead>
 ) : (
   <TableHead className="text-center text-muted-foreground font-normal">
@@ -1084,7 +1084,7 @@ const uploadQuoteDisabled =
           )}
 
           <div className="inline-flex w-fit items-center rounded-md border border-[#ffbf00]/25 bg-[#ffbf00]/10 px-2 py-0.5 text-[11px] font-semibold text-[#ffbf00]">
-            ЗЧБ: —/10
+            Индекс риска: —/100
           </div>
         </div>
       );

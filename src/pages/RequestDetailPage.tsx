@@ -581,7 +581,7 @@ function SupplierAnalysisPanel({
 
   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
     <div className="mb-2 text-xs text-white/45">
-      За Честный Бизнес
+      Индекс риска
     </div>
 
     <div className="text-sm font-semibold text-white">
@@ -589,7 +589,7 @@ function SupplierAnalysisPanel({
     </div>
 
     <div className="mt-1 text-xs text-white/45">
-      После подключения API здесь будет индекс риска
+      После подключения источника данных здесь будет индекс риска
     </div>
   </div>
 </div>
@@ -799,7 +799,7 @@ function SupplierAnalysisPanel({
     )}
 
     <div className="mt-3 rounded-md border border-[#ffbf00]/20 bg-[#ffbf00]/10 p-2 text-xs text-[#ffdf72]">
-      Справка сформирована AI по ИНН и может быть неактуальной. После подключения API “За Честный Бизнес” здесь будет официальная платная проверка.
+      Справка сформирована AI по ИНН и может быть неактуальной. После подключения официального источника данных здесь будет платная проверка и индекс риска.
     </div>
   </div>
 )}
