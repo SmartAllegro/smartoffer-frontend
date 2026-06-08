@@ -25,6 +25,15 @@ export type ChatMember = {
   is_self: boolean;
 };
 
+export type ChatAttachment = {
+  id: number;
+  message_id: number;
+  original_filename: string;
+  content_type?: string | null;
+  size_bytes: number;
+  created_at: string;
+};
+
 export type ChatMembersResponse = {
   items: ChatMember[];
 };
@@ -40,6 +49,7 @@ export type ChatMessage = {
   edited_at?: string | null;
   deleted_at?: string | null;
   is_own: boolean;
+  attachments?: ChatAttachment[];
 };
 
 export type ChatDialog = {
@@ -140,4 +150,93 @@ export async function getChatUnreadCount(): Promise<ChatUnreadCountResponse> {
   return apiFetch<ChatUnreadCountResponse>("/chat/unread-count", {
     method: "GET",
   });
+}
+
+function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem("SMARTOFFER_AUTH_TOKEN");
+  } catch {
+    return null;
+  }
+}
+
+function filenameFromContentDisposition(value: string | null): string | null {
+  if (!value) return null;
+
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    } catch {
+      return utf8Match[1].replace(/"/g, "");
+    }
+  }
+
+  const regularMatch = value.match(/filename="?([^"]+)"?/i);
+  if (regularMatch?.[1]) {
+    return regularMatch[1].trim();
+  }
+
+  return null;
+}
+
+export async function uploadChatAttachment(
+  dialogId: number,
+  file: File,
+  bodyText = ""
+): Promise<ChatMessage> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("body_text", bodyText);
+
+  return apiFetch<ChatMessage>(`/chat/dialogs/${dialogId}/attachments`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function downloadChatAttachment(attachmentId: number): Promise<{
+  blob: Blob;
+  filename: string;
+  contentType: string;
+}> {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  if (!baseUrl) {
+    throw new Error(
+      "VITE_API_BASE_URL is not set. Create .env.local with VITE_API_BASE_URL=http://127.0.0.1:10000"
+    );
+  }
+
+  const headers: HeadersInit = {};
+  const token = getAuthToken();
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${baseUrl}/chat/attachments/${attachmentId}/download`, {
+    method: "GET",
+    headers,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Не удалось скачать файл: ${response.status}${text ? ` ${text}` : ""}`
+    );
+  }
+
+  const blob = await response.blob();
+
+  return {
+    blob,
+    filename:
+      filenameFromContentDisposition(response.headers.get("content-disposition")) ||
+      `chat-file-${attachmentId}`,
+    contentType:
+      response.headers.get("content-type") ||
+      blob.type ||
+      "application/octet-stream",
+  };
 }

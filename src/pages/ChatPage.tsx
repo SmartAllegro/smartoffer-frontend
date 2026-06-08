@@ -2,14 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  Download,
   History,
   Loader2,
   MessageCircle,
+  Paperclip,
   RefreshCw,
   Search,
   Send,
   UserRound,
   Users,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
@@ -18,6 +21,7 @@ import { RadarLogo } from "@/shared/ui/RadarLogo";
 import { cn } from "@/shared/utils/utils";
 import { useToast } from "@/shared/hooks/use-toast";
 import {
+  downloadChatAttachment,  
   getChatUnreadCount,
   listChatDialogs,
   listChatMembers,
@@ -25,6 +29,8 @@ import {
   markChatDialogRead,
   openDirectChatDialog,
   sendChatMessage,
+  uploadChatAttachment,
+  type ChatAttachment,
   type ChatDialog,
   type ChatMember,
   type ChatMessage,
@@ -87,6 +93,55 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
+function formatFileSize(sizeBytes?: number | null) {
+  const value = Number(sizeBytes || 0);
+
+  if (!Number.isFinite(value) || value <= 0) return "0 Б";
+  if (value < 1024) return `${value} Б`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} КБ`;
+
+  return `${(value / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function isImageFile(file: File | null) {
+  if (!file) return false;
+  return (file.type || "").toLowerCase().startsWith("image/");
+}
+
+function isImageAttachment(attachment: ChatAttachment) {
+  const contentType = (attachment.content_type || "").toLowerCase();
+  const filename = (attachment.original_filename || "").toLowerCase();
+
+  return (
+    contentType.startsWith("image/") ||
+    filename.endsWith(".png") ||
+    filename.endsWith(".jpg") ||
+    filename.endsWith(".jpeg") ||
+    filename.endsWith(".webp") ||
+    filename.endsWith(".gif")
+  );
+}
+
+function pastedImageExtension(contentType: string) {
+  const type = (contentType || "").toLowerCase();
+
+  if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
+  if (type.includes("webp")) return "webp";
+  if (type.includes("gif")) return "gif";
+
+  return "png";
+}
+
+function makePastedImageName(contentType: string) {
+  const ext = pastedImageExtension(contentType);
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")
+    .slice(0, 19);
+
+  return `chat-image-${stamp}.${ext}`;
+}
+
 function initials(params: {
   first_name?: string | null;
   last_name?: string | null;
@@ -107,6 +162,59 @@ function shortText(value?: string | null) {
   if (!text) return "Нет сообщений";
   if (text.length <= 70) return text;
   return `${text.slice(0, 70)}…`;
+}
+
+function normalizeSearchText(value?: string | null) {
+  return (value || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function messageMatchesSearch(message: ChatMessage, query: string) {
+  const q = normalizeSearchText(query);
+  if (!q) return true;
+
+  const attachments = Array.isArray(message.attachments)
+    ? message.attachments
+    : [];
+
+  const haystack = normalizeSearchText(
+    [
+      message.body_text,
+      message.sender_name,
+      message.sender_email,
+      ...attachments.map((item) => item.original_filename),
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  return haystack.includes(q);
+}
+
+function highlightSearchText(text: string, query: string) {
+  const q = query.trim();
+
+  if (!q) return text;
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = q.toLowerCase();
+
+  const index = lowerText.indexOf(lowerQuery);
+
+  if (index < 0) return text;
+
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + q.length);
+  const after = text.slice(index + q.length);
+
+  return (
+    <>
+      {before}
+      <mark className="rounded bg-primary/35 px-0.5 text-inherit">
+        {match}
+      </mark>
+      {after}
+    </>
+  );
 }
 
 function normalizeChatAccessError(error: unknown): string {
@@ -176,6 +284,17 @@ export default function ChatPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
+  const [dialogSearchQuery, setDialogSearchQuery] = useState("");
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFilePreviewUrl, setSelectedFilePreviewUrl] = useState<string | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<Record<number, string>>({});
+  const attachmentPreviewUrlsRef = useRef<Record<number, string>>({});
 
   const [bootLoading, setBootLoading] = useState(true);
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -289,6 +408,70 @@ export default function ChatPage() {
     });
   }, [messages.length, selectedDialogId]);
 
+  useEffect(() => {
+    if (!selectedFile || !isImageFile(selectedFile)) {
+      setSelectedFilePreviewUrl(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(selectedFile);
+    setSelectedFilePreviewUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [selectedFile]);
+
+  useEffect(() => {
+    let cancelled = false;
+ 
+    const imageAttachments = messages.flatMap((message) =>
+      (Array.isArray(message.attachments) ? message.attachments : []).filter(
+        (attachment) =>
+          isImageAttachment(attachment) &&
+          !attachmentPreviewUrlsRef.current[attachment.id]
+      )
+    );
+
+    if (imageAttachments.length === 0) return;
+
+    for (const attachment of imageAttachments) {
+      downloadChatAttachment(attachment.id)
+        .then((result) => {
+          const url = URL.createObjectURL(result.blob);
+
+          if (cancelled) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+
+          attachmentPreviewUrlsRef.current[attachment.id] = url;
+
+          setAttachmentPreviewUrls((current) => ({
+            ...current,
+            [attachment.id]: url,
+          }));
+        })
+        .catch(() => {
+          // Превью не должно ломать чат. Если не загрузилось — останется карточка файла.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of Object.values(attachmentPreviewUrlsRef.current)) {
+        URL.revokeObjectURL(url);
+      }
+
+      attachmentPreviewUrlsRef.current = {};
+    };
+  }, []);
+
   const contacts = useMemo<ContactItem[]>(() => {
     const dialogByPeer = new Map<number, ChatDialog>();
 
@@ -340,6 +523,14 @@ export default function ChatPage() {
     return dialogs.find((dialog) => dialog.id === selectedDialogId) || null;
   }, [dialogs, selectedDialogId]);
 
+const filteredMessages = useMemo(() => {
+  const q = dialogSearchQuery.trim();
+
+  if (!q) return messages;
+
+  return messages.filter((message) => messageMatchesSearch(message, q));
+}, [messages, dialogSearchQuery]);
+
   const selectedMember = useMemo(() => {
     if (selectedDialog) return null;
     if (!selectedPeerUserId) return null;
@@ -363,6 +554,7 @@ export default function ChatPage() {
       : "Откройте диалог из списка слева";
 
   async function handleSelectContact(contact: ContactItem) {
+    setDialogSearchQuery("");
     try {
       if (contact.kind === "dialog" && contact.dialog) {
         setSelectedDialogId(contact.dialog.id);
@@ -402,26 +594,51 @@ export default function ChatPage() {
   async function handleSendMessage() {
     const body = messageDraft.trim();
 
-    if (!selectedDialogId || !body || sending) return;
+    if (!selectedDialogId || sending || uploadingFile) return;
+    if (!body && !selectedFile) return;
+
+    if (selectedFile) {
+      const maxBytes = 20 * 1024 * 1024;
+
+      if (selectedFile.size > maxBytes) {
+        toast({
+          title: "Файл слишком большой",
+          description: "Максимальный размер файла — 20 МБ.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     setSending(true);
+    setUploadingFile(Boolean(selectedFile));
 
     try {
-      const message = await sendChatMessage(selectedDialogId, body);
+      const message = selectedFile
+        ? await uploadChatAttachment(selectedDialogId, selectedFile, body)
+        : await sendChatMessage(selectedDialogId, body);
 
       setMessages((current) => [...current, message]);
       setMessageDraft("");
+      setSelectedFile(null);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
 
       await markChatDialogRead(selectedDialogId);
       await refreshSidebar();
     } catch (e) {
       toast({
-        title: "Не удалось отправить сообщение",
+        title: selectedFile
+          ? "Не удалось отправить файл"
+          : "Не удалось отправить сообщение",
         description: e instanceof Error ? e.message : "Ошибка",
         variant: "destructive",
       });
     } finally {
       setSending(false);
+      setUploadingFile(false);
     }
   }
 
@@ -432,6 +649,116 @@ export default function ChatPage() {
     event.preventDefault();
     handleSendMessage();
   }
+
+  function applySelectedFile(file: File) {
+    const maxBytes = 20 * 1024 * 1024;
+
+    if (file.size > maxBytes) {
+      toast({
+        title: "Файл слишком большой",
+        description: "Максимальный размер файла — 20 МБ.",
+        variant: "destructive",
+      });
+
+      return;
+    }
+
+    setSelectedFile(file);
+  }
+
+  function extractImageFromClipboard(event: ClipboardEvent) {
+    const items = Array.from(event.clipboardData?.items || []);
+
+    const imageItem = items.find((item) => {
+      return item.kind === "file" && item.type.toLowerCase().startsWith("image/");
+    });
+
+    if (!imageItem) return null;
+
+    const rawFile = imageItem.getAsFile();
+    if (!rawFile) return null;
+
+    return new File(
+      [rawFile],
+      makePastedImageName(rawFile.type || "image/png"),
+      {
+        type: rawFile.type || "image/png",
+        lastModified: Date.now(),
+      }
+    );
+  }
+
+  function handleSelectFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    applySelectedFile(file);
+  } 
+
+  async function handleDownloadAttachment(attachment: ChatAttachment) {
+    try {
+      const result = await downloadChatAttachment(attachment.id);
+
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = result.filename || attachment.original_filename || "file";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast({
+        title: "Не удалось скачать файл",
+        description: e instanceof Error ? e.message : "Ошибка",
+        variant: "destructive",
+      });
+    }
+  }
+
+  useEffect(() => {
+    function handleDocumentPaste(event: ClipboardEvent) {
+      if (!selectedDialogId || sending || uploadingFile) return;
+
+      const active = document.activeElement;
+
+      // Не перехватываем вставку в поиске сотрудников и других input'ах.
+      // Исключение — поле ввода сообщения.
+      if (
+        active instanceof HTMLInputElement &&
+        active !== messageInputRef.current
+      ) {
+        return;
+      }
+
+      if (active instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const imageFile = extractImageFromClipboard(event);
+      if (!imageFile) return;
+
+      event.preventDefault();
+      applySelectedFile(imageFile);
+
+      toast({
+        title: "Картинка добавлена",
+        description: "Нажмите отправку или Enter, чтобы отправить изображение.",
+      });
+    }
+
+    document.addEventListener("paste", handleDocumentPaste);
+
+    return () => {
+      document.removeEventListener("paste", handleDocumentPaste);
+    };
+  }, [selectedDialogId, sending, uploadingFile, toast]);
 
   if (bootLoading) {
     return (
@@ -685,99 +1012,301 @@ export default function ChatPage() {
                 </div>
               </div>
 
-              <div className="hidden text-right text-xs text-muted-foreground sm:block">
-                {selectedDialog?.last_message_at
-                  ? `Последнее сообщение: ${formatDateTime(selectedDialog.last_message_at)}`
-                  : "История диалога"}
-              </div>
+              <div className="hidden min-w-[260px] max-w-[360px] flex-1 flex-col items-end gap-2 sm:flex">
+  <div className="relative w-full">
+    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+    <Input
+      value={dialogSearchQuery}
+      onChange={(event) => setDialogSearchQuery(event.target.value)}
+      placeholder="Поиск в диалоге..."
+      className="h-9 border-border bg-background/70 pl-9 text-sm"
+      disabled={!selectedDialogId}
+    />
+  </div>
+
+  <div className="text-right text-xs text-muted-foreground">
+    {dialogSearchQuery.trim()
+      ? `Найдено: ${filteredMessages.length}`
+      : selectedDialog?.last_message_at
+        ? `Последнее сообщение: ${formatDateTime(selectedDialog.last_message_at)}`
+        : "История диалога"}
+  </div>
+</div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-              {!selectedDialogId ? (
-                <div className="flex h-full items-center justify-center">
-                  <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
-                    <MessageCircle className="mx-auto h-10 w-10 text-primary" />
-                    <div className="mt-3 text-base font-semibold text-white">
-                      Выберите сотрудника
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Откройте диалог из списка слева или начните новый чат с сотрудником команды.
-                    </div>
-                  </div>
-                </div>
-              ) : messagesLoading && messages.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-muted-foreground">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
-                  Загрузка сообщений…
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="flex h-full items-center justify-center">
-                  <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
-                    <MessageCircle className="mx-auto h-10 w-10 text-primary" />
-                    <div className="mt-3 text-base font-semibold text-white">
-                      Сообщений пока нет
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Напишите первое сообщение сотруднику.
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                 {messages.map((message) => (
-  <div
-    key={message.id}
-    className={cn(
-      "flex w-full",
-      message.is_own ? "justify-end" : "justify-start"
-    )}
-  >
-    <div
-      className={cn(
-        "inline-flex max-w-[86%] min-w-[190px] items-end gap-3 rounded-[22px] px-4 py-2 text-sm shadow-sm sm:min-w-[240px]",
-        message.is_own
-          ? "border border-primary/40 bg-primary text-[#2b2100]"
-          : "border border-border bg-muted/60 text-white"
-      )}
-    >
-      <div className="min-w-0 flex-1">
-        {!message.is_own && (
-          <div className="mb-1 text-xs font-semibold text-muted-foreground">
-            {message.sender_name || message.sender_email || "Сотрудник"}
-          </div>
-        )}
+<div className="border-b border-border px-5 py-3 sm:hidden">
+  <div className="relative">
+    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
-        <div className="whitespace-pre-wrap break-words leading-snug">
-          {message.body_text}
+    <Input
+      value={dialogSearchQuery}
+      onChange={(event) => setDialogSearchQuery(event.target.value)}
+      placeholder="Поиск в диалоге..."
+      className="h-10 border-border bg-background/70 pl-9 text-sm"
+      disabled={!selectedDialogId}
+    />
+  </div>
+
+  {dialogSearchQuery.trim() && (
+    <div className="mt-2 text-xs text-muted-foreground">
+      Найдено: {filteredMessages.length}
+    </div>
+  )}
+</div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+  {!selectedDialogId ? (
+    <div className="flex h-full items-center justify-center">
+      <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
+        <MessageCircle className="mx-auto h-10 w-10 text-primary" />
+        <div className="mt-3 text-base font-semibold text-white">
+          Выберите сотрудника
+        </div>
+        <div className="mt-2 text-sm text-muted-foreground">
+          Откройте диалог из списка слева или начните новый чат с сотрудником команды.
         </div>
       </div>
-
-      <div
-        className={cn(
-          "shrink-0 self-end whitespace-nowrap pb-0.5 text-[11px] leading-none",
-          message.is_own
-            ? "text-[#5b4200]/75"
-            : "text-muted-foreground"
-        )}
-      >
-        {formatTime(message.created_at)}
+    </div>
+  ) : messagesLoading && messages.length === 0 ? (
+    <div className="flex h-full items-center justify-center text-muted-foreground">
+      <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
+      Загрузка сообщений…
+    </div>
+  ) : messages.length === 0 ? (
+    <div className="flex h-full items-center justify-center">
+      <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
+        <MessageCircle className="mx-auto h-10 w-10 text-primary" />
+        <div className="mt-3 text-base font-semibold text-white">
+          Сообщений пока нет
+        </div>
+        <div className="mt-2 text-sm text-muted-foreground">
+          Напишите первое сообщение сотруднику.
+        </div>
+      </div>
+    </div>
+      ) : dialogSearchQuery.trim() && filteredMessages.length === 0 ? (
+  <div className="flex h-full items-center justify-center">
+    <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
+      <Search className="mx-auto h-10 w-10 text-primary" />
+      <div className="mt-3 text-base font-semibold text-white">
+        Ничего не найдено
+      </div>
+      <div className="mt-2 text-sm text-muted-foreground">
+        Попробуйте другое слово или очистите поиск.
       </div>
     </div>
   </div>
-))}
+) : (
+  <div className="space-y-3">
+    {filteredMessages.map((message) => {
+        const attachments = Array.isArray(message.attachments)
+          ? message.attachments
+          : [];
 
-                  <div ref={messagesEndRef} />
-                </div>
-              )}
+        return (
+          <div
+            key={message.id}
+            className={cn(
+              "flex w-full",
+              message.is_own ? "justify-end" : "justify-start"
+            )}
+          >
+            <div
+              className={cn(
+  "inline-flex max-w-[86%] min-w-[190px] items-end gap-3 rounded-[22px] px-4 py-2 text-sm shadow-sm sm:min-w-[240px]",
+  message.is_own
+    ? "border border-primary/40 bg-primary text-[#2b2100]"
+    : "border border-border bg-muted/60 text-white"
+)}
+            >
+              <div className="min-w-0 flex-1">
+                {!message.is_own && (
+                  <div className="mb-1 text-xs font-semibold text-muted-foreground">
+                    {message.sender_name || message.sender_email || "Сотрудник"}
+                  </div>
+                )}
+
+                {message.body_text && (
+                  <div className="whitespace-pre-wrap break-words leading-snug">
+                    {highlightSearchText(message.body_text, dialogSearchQuery)}
+                  </div>
+                )}
+
+                {attachments.length > 0 && (
+                  <div className={cn("mt-2 space-y-1", !message.body_text && "mt-0")}>
+                    {attachments.map((attachment) => {
+                      const previewUrl = attachmentPreviewUrls[attachment.id];
+                      const image = isImageAttachment(attachment);
+
+                      if (image && previewUrl) {
+                        return (
+                          <button
+                            key={attachment.id}
+                            type="button"
+                            onClick={() => handleDownloadAttachment(attachment)}
+                            className={cn(
+                              "block w-full max-w-[320px] overflow-hidden rounded-xl border text-left transition",
+                              message.is_own
+                                ? "border-[#5b4200]/25 bg-[#2b2100]/10 hover:bg-[#2b2100]/15"
+                                : "border-white/10 bg-black/15 hover:bg-black/25"
+                            )}
+                            title="Скачать изображение"
+                          >
+                            <img
+                              src={previewUrl}
+                              alt={attachment.original_filename || "Изображение"}
+                              className="max-h-[260px] w-full object-contain"
+                            />
+
+                            <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                              <Paperclip className="h-4 w-4 shrink-0" />
+
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-semibold">
+                                  {attachment.original_filename || "Изображение"}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "block text-[11px]",
+                                    message.is_own
+                                      ? "text-[#5b4200]/70"
+                                      : "text-muted-foreground"
+                                  )}
+                                >
+                                  {formatFileSize(attachment.size_bytes)}
+                                </span>
+                              </span>
+
+                              <Download className="h-4 w-4 shrink-0 opacity-70" />
+                            </div>
+                          </button>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={attachment.id}
+                          type="button"
+                          onClick={() => handleDownloadAttachment(attachment)}
+                          className={cn(
+                            "flex w-full max-w-[260px] items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition",
+                            message.is_own
+                              ? "border-[#5b4200]/25 bg-[#2b2100]/10 hover:bg-[#2b2100]/15"
+                              : "border-white/10 bg-black/15 hover:bg-black/25"
+                          )}
+                          title="Скачать файл"
+                        >
+                          <Paperclip className="h-4 w-4 shrink-0" />
+
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-semibold">
+                              {attachment.original_filename || "Файл"}
+                            </span>
+                            <span
+                              className={cn(
+                                "block text-[11px]",
+                                message.is_own
+                                  ? "text-[#5b4200]/70"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {formatFileSize(attachment.size_bytes)}
+                            </span>
+                          </span>
+
+                          <Download className="h-4 w-4 shrink-0 opacity-70" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div
+                className={cn(
+                  "shrink-0 self-end whitespace-nowrap pb-0.5 text-[11px] leading-none",
+                  message.is_own
+                    ? "text-[#5b4200]/75"
+                    : "text-muted-foreground"
+                )}
+              >
+                {formatTime(message.created_at)}
+              </div>
             </div>
+          </div>
+        );
+      })}
+
+      <div ref={messagesEndRef} />
+    </div>
+  )}
+</div>
 
             <div className="border-t border-border p-4">
+              {selectedFile && (
+                <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-background/55 px-3 py-2 text-xs text-muted-foreground">
+                  <Paperclip className="h-4 w-4 shrink-0 text-primary" />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold text-white">
+                      {selectedFile.name}
+                    </div>
+                    <div>{formatFileSize(selectedFile.size)}</div>
+
+                    {selectedFilePreviewUrl && (
+                      <img
+                        src={selectedFilePreviewUrl}
+                        alt={selectedFile.name}
+                        className="mt-2 max-h-40 max-w-full rounded-lg border border-border object-contain"
+                      />
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFile(null);
+
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = "";
+                      }
+                    }}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border hover:bg-muted"
+                    title="Убрать файл"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleSelectFile}
+                  disabled={!selectedDialogId || sending || uploadingFile}
+                />
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!selectedDialogId || sending || uploadingFile}
+                  title="Прикрепить файл"
+                  className="h-12 w-12 shrink-0"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+
                 <Input
+                  ref={messageInputRef}
                   value={messageDraft}
                   onChange={(event) => setMessageDraft(event.target.value)}
                   onKeyDown={handleKeyDown}
-                  disabled={!selectedDialogId || sending}
+                  disabled={!selectedDialogId || sending || uploadingFile}
                   placeholder="Введите сообщение..."
                   className="h-12 border-border bg-background/70"
                   maxLength={4000}
@@ -786,12 +1315,17 @@ export default function ChatPage() {
                 <Button
                   type="button"
                   onClick={handleSendMessage}
-                  disabled={!selectedDialogId || !messageDraft.trim() || sending}
+                  disabled={
+                    !selectedDialogId ||
+                    sending ||
+                    uploadingFile ||
+                    (!messageDraft.trim() && !selectedFile)
+                  }
                   className="h-12 w-12 shrink-0 p-0"
                   title="Отправить"
                   aria-label="Отправить"
                 >
-                  {sending ? (
+                  {sending || uploadingFile ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
                     <Send className="h-5 w-5" />
@@ -800,7 +1334,7 @@ export default function ChatPage() {
               </div>
 
               <div className="mt-2 text-xs text-muted-foreground">
-                Enter — отправить. Вложения на первом этапе отключены.
+                Enter — отправить. Максимальный размер файла — 20 МБ.
               </div>
             </div>
           </section>
