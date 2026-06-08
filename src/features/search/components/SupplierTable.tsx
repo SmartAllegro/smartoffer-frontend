@@ -57,7 +57,9 @@ interface SupplierTableProps {
   onAdd: (email: string) => void;
   disabled?: boolean;
   readOnly?: boolean;
+  requestAnalysisMode?: boolean;
   historyScope?: "personal" | "team";
+  hideSupplierNameColumn?: boolean;
 
   onToggleQuote?: (
     supplierId: string,
@@ -69,6 +71,12 @@ interface SupplierTableProps {
     supplierId: string,
     backendResultId: number,
     status: SupplierReplyStatus
+  ) => void | Promise<void>;
+
+  onUpdateSupplierInn?: (
+    supplierId: string,
+    backendResultId: number,
+    supplierInn: string | null
   ) => void | Promise<void>;
 
   onUploadQuoteFile?: (
@@ -88,18 +96,20 @@ interface SupplierTableProps {
   ) => void | Promise<void>;
 }
 
- function safeHostLabel(rawUrl?: string): string {
+function safeHostLabel(rawUrl?: string): string {
   const u = (rawUrl ?? "").trim();
   if (!u || u === "#") return "—";
 
+  const clean = (host: string) => host.replace(/^www\./i, "") || "—";
+
   if (!/^https?:\/\//i.test(u)) {
-    return u.replace(/^\/+/, "").split("/")[0] || "—";
+    return clean(u.replace(/^\/+/, "").split("/")[0] || "—");
   }
 
   try {
-    return new URL(u).hostname || "—";
+    return clean(new URL(u).hostname || "—");
   } catch {
-    return u.replace(/^https?:\/\//i, "").split("/")[0] || "—";
+    return clean(u.replace(/^https?:\/\//i, "").split("/")[0] || "—");
   }
 }
 
@@ -107,6 +117,28 @@ function safeHref(rawUrl?: string): string {
   const u = (rawUrl ?? "").trim();
   if (!u) return "#";
   return u;
+}
+
+function supplierInnPlaceholder(supplier: Supplier): {
+  inn: string;
+  score: string;
+  risk: string;
+} {
+  const key = `${supplier.contact || ""}${supplier.source_url || ""}`;
+
+  if (!key.trim()) {
+    return {
+      inn: "—",
+      score: "ЗЧБ: —/10",
+      risk: "Ожидает данных",
+    };
+  }
+
+  return {
+    inn: "Будет найден по API",
+    score: "ЗЧБ: —/10",
+    risk: "API не подключен",
+  };
 }
 
 function isValidEmail(email: string): boolean {
@@ -530,8 +562,11 @@ export function SupplierTable({
   historyScope = "personal",
   disabled = false,
   readOnly = false,
+  requestAnalysisMode = false,
+  hideSupplierNameColumn = false,
   onToggleQuote,
   onSetReplyStatus,
+  onUpdateSupplierInn,
   onUploadQuoteFile,
   onOpenQuoteFile,
   onMarkSupplierDialogRead,
@@ -545,6 +580,9 @@ export function SupplierTable({
   const [dialogReplies, setDialogReplies] = useState<SupplierReplyItem[]>([]);
   const [dialogLoading, setDialogLoading] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const [innDrafts, setInnDrafts] = useState<Record<string, string>>({});
+  const [innSavingIds, setInnSavingIds] = useState<Record<string, boolean>>({});
 
   const handleShowError = (supplier: Supplier) => {
     setSelectedErrorSupplier(supplier);
@@ -586,6 +624,8 @@ export function SupplierTable({
     disabled || readOnly || selectableSuppliers.length === 0;
 
   const showQuoteColumn = readOnly;
+  const analysisMode = readOnly && requestAnalysisMode;
+  const showSupplierNameColumn = !analysisMode && !hideSupplierNameColumn;
   const canToggleQuote = typeof onToggleQuote === "function" && !disabled;
 
   const quoteActionButtonBase =
@@ -623,6 +663,43 @@ async function openSupplierDialog(supplier: Supplier) {
   }
 }
 
+function normalizeInnInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 12);
+}
+
+async function saveSupplierInn(supplier: Supplier) {
+  const backendId = supplier.backend_result_id;
+
+  if (!backendId || typeof onUpdateSupplierInn !== "function") return;
+
+  const current = supplier.supplier_inn || "";
+  const draft = normalizeInnInput(
+    innDrafts[supplier.id] !== undefined ? innDrafts[supplier.id] : current
+  );
+
+  if (draft && draft.length !== 10 && draft.length !== 12) {
+    return;
+  }
+
+  setInnSavingIds((prev) => ({ ...prev, [supplier.id]: true }));
+
+  try {
+    await onUpdateSupplierInn(supplier.id, backendId, draft || null);
+
+    setInnDrafts((prev) => {
+      const next = { ...prev };
+      delete next[supplier.id];
+      return next;
+    });
+  } finally {
+    setInnSavingIds((prev) => {
+      const next = { ...prev };
+      delete next[supplier.id];
+      return next;
+    });
+  }
+}
+
 async function openDialogAttachment(file: ReplyAttachmentItem) {
   if (historyScope === "team") {
     setDialogError(
@@ -650,19 +727,30 @@ async function openDialogAttachment(file: ReplyAttachmentItem) {
       <div
   className={cn(
     "border border-border rounded-lg bg-card",
-    readOnly ? "overflow-x-auto" : "overflow-hidden"
+    "overflow-hidden"
   )}
 >
-  <Table className={cn(readOnly && "table-fixed")}>
-    {readOnly ? (
-      <colgroup>
-        <col style={{ width: "15%" }} />
-        <col style={{ width: "17%" }} />
-        <col style={{ width: "15%" }} />
-        <col style={{ width: "11%" }} />
-        <col style={{ width: "42%" }} />
-      </colgroup>
-    ) : (
+  <Table className={cn("w-full", readOnly && "table-fixed")}>
+   {readOnly ? (
+  <colgroup>
+    {analysisMode ? (
+  <>
+    <col style={{ width: "24%" }} />
+    <col style={{ width: "22%" }} />
+    <col style={{ width: "15%" }} />
+    <col style={{ width: "25%" }} />
+  </>
+) : (
+      <>
+        {!hideSupplierNameColumn && <col style={{ width: "15%" }} />}
+        <col style={{ width: hideSupplierNameColumn ? "24%" : "17%" }} />
+        <col style={{ width: hideSupplierNameColumn ? "18%" : "15%" }} />
+        <col style={{ width: hideSupplierNameColumn ? "12%" : "11%" }} />
+        <col style={{ width: hideSupplierNameColumn ? "46%" : "42%" }} />
+      </>
+    )}
+  </colgroup>
+) : (
       <colgroup>
         <col style={{ width: "44px" }} />
         <col style={{ width: "25%" }} />
@@ -694,24 +782,37 @@ async function openDialogAttachment(file: ReplyAttachmentItem) {
                 </TableHead>
               )}
 
-              <TableHead className="text-center text-muted-foreground font-normal">
-  Поставщик
+              {showSupplierNameColumn && (
+  <TableHead className="text-center text-muted-foreground font-normal">
+    Поставщик
+  </TableHead>
+)}
+
+<TableHead
+  className={cn(
+    "text-muted-foreground font-normal",
+    analysisMode ? "text-left" : "text-center"
+  )}
+>
+  {analysisMode ? "Контакты и домен" : "Контакт"}
 </TableHead>
 
-<TableHead className="text-center text-muted-foreground font-normal">
-  Контакт
-</TableHead>
+{analysisMode ? (
+  <TableHead className="text-left text-muted-foreground font-normal">
+    ИНН / За Честный Бизнес
+  </TableHead>
+) : (
+  <TableHead className="text-center text-muted-foreground font-normal">
+    Источник
+  </TableHead>
+)}
 
-<TableHead className="text-center text-muted-foreground font-normal">
-  Источник
-</TableHead>
-
-<TableHead className="w-[100px] min-w-[100px] px-2 text-center text-muted-foreground font-normal">
+<TableHead className="px-2 text-center text-muted-foreground font-normal">
   Статус
 </TableHead>
 
 {showQuoteColumn && (
-  <TableHead className="w-[420px] min-w-[420px] px-3 text-center text-muted-foreground font-normal">
+  <TableHead className="px-2 text-center text-muted-foreground font-normal">
     Обратная связь
   </TableHead>
 )}
@@ -769,70 +870,256 @@ const uploadQuoteDisabled =
                     </TableCell>
                   )}
 
-                  <TableCell className="align-middle px-3 py-3 font-medium text-foreground">
-  <div
-    className={cn(
-      "max-w-full break-words leading-snug",
-      readOnly &&
-        "overflow-hidden [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
-    )}
-    title={supplier.supplier_name || "—"}
-  >
-    {supplier.supplier_name || "—"}
-  </div>
-</TableCell>
-
-                  <TableCell className="align-middle px-3 py-3">
-  {hasEmail ? (
-    <span
+                  {showSupplierNameColumn && (
+  <TableCell className="align-middle px-3 py-3 font-medium text-foreground">
+    <div
       className={cn(
-        "block max-w-full text-muted-foreground",
-        readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+        "max-w-full break-words leading-snug",
+        readOnly &&
+          "overflow-hidden [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
       )}
-      title={supplier.contact}
+      title={supplier.supplier_name || "—"}
     >
-      {supplier.contact}
-    </span>
-  ) : (
-    <div className="flex flex-col gap-0.5">
-      <span className="truncate text-sm text-yellow-300" title={contactLabel}>
-        {contactLabel}
-      </span>
-      <span className="text-[11px] text-muted-foreground">
-        Email не найден
-      </span>
+      {supplier.supplier_name || "—"}
     </div>
-  )}
-</TableCell>
+  </TableCell>
+)}
 
                   <TableCell className="align-middle px-3 py-3">
-  {href !== "#" ? (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn(
-        "inline-block max-w-full text-primary hover:underline",
-        readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
-      )}
-      title={hostLabel}
-    >
-      {hostLabel}
-    </a>
-  ) : (
-    <span
-      className={cn(
-        "inline-block max-w-full text-muted-foreground",
-        readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
-      )}
-      title={hostLabel}
-    >
-      {hostLabel}
-    </span>
-  )}
-</TableCell>
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                      {analysisMode &&
+                      ((backendId && quoteFileCount > 0 && onOpenQuoteFile) ||
+                        replyDialogCount > 0) ? (
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          {backendId && quoteFileCount > 0 && onOpenQuoteFile ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
 
-                  <TableCell className="w-[100px] min-w-[100px] px-2 text-center align-middle">
+                                if (!backendId || typeof onOpenQuoteFile !== "function") return;
+                                void onOpenQuoteFile(supplier.id, backendId);
+                              }}
+                              className="
+                                inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
+                                border border-emerald-500/25 bg-emerald-500/10 px-2
+                                text-[10px] font-semibold text-emerald-300
+                                transition hover:bg-emerald-500 hover:text-white
+                              "
+                              title="Открыть файл КП"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Открыть КП
+                            </button>
+                          ) : null}
+
+                          {replyDialogCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                openSupplierDialog(supplier);
+                              }}
+                              className="
+                                relative inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
+                                border border-sky-500/25 bg-sky-500/10 px-2
+                                text-[10px] font-semibold text-sky-200
+                                transition hover:bg-sky-500 hover:text-white
+                              "
+                              title={
+                                unreadReplyDialogCount > 0
+                                  ? `Открыть диалог с поставщиком · новых сообщений: ${unreadReplyDialogCount} · всего сообщений: ${replyDialogCount}`
+                                  : `Открыть диалог с поставщиком · всего сообщений: ${replyDialogCount}`
+                              }
+                            >
+                              <MessageSquareText className="h-3.5 w-3.5" />
+                              Диалог
+
+                              {unreadReplyDialogCount > 0 ? (
+                                <span
+                                  className="
+                                    absolute -right-1.5 -top-1.5
+                                    inline-flex h-4 min-w-4 items-center justify-center rounded-full
+                                    border border-card bg-red-500 px-1
+                                    text-[9px] font-bold leading-none text-white
+                                    shadow-[0_0_0_1px_rgba(0,0,0,0.25)]
+                                  "
+                                >
+                                  {supplierDialogBadgeText(unreadReplyDialogCount)}
+                                </span>
+                              ) : null}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {analysisMode ? (
+                        <div className="space-y-1 leading-snug">
+                          <div
+                            className="break-all text-[13px] text-muted-foreground"
+                            title={hasEmail ? supplier.contact : contactLabel}
+                          >
+                            {hasEmail ? supplier.contact : contactLabel}
+                          </div>
+
+                          {href !== "#" ? (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block break-all text-[13px] font-semibold text-foreground hover:text-primary hover:underline"
+                              title={hostLabel}
+                            >
+                              {hostLabel}
+                            </a>
+                          ) : (
+                            <div
+                              className="break-all text-[13px] font-semibold text-foreground"
+                              title={hostLabel}
+                            >
+                              {hostLabel}
+                            </div>
+                          )}
+                        </div>
+                      ) : hasEmail ? (
+                        <span
+                          className={cn(
+                            "block max-w-full text-muted-foreground",
+                            readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+                          )}
+                          title={supplier.contact}
+                        >
+                          {supplier.contact}
+                        </span>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="truncate text-sm text-yellow-300" title={contactLabel}>
+                            {contactLabel}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            Email не найден
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
+
+{analysisMode ? (
+  <TableCell className="align-middle px-3 py-3">
+    {(() => {
+      const savedInn = supplier.supplier_inn || "";
+      const draft =
+        innDrafts[supplier.id] !== undefined
+          ? innDrafts[supplier.id]
+          : savedInn;
+
+      const hasChanges = draft !== savedInn;
+      const isInvalid =
+        Boolean(draft) && draft.length !== 10 && draft.length !== 12;
+      const isSaving = Boolean(innSavingIds[supplier.id]);
+      const canSave =
+        Boolean(backendId) &&
+        typeof onUpdateSupplierInn === "function" &&
+        hasChanges &&
+        !isInvalid &&
+        !isSaving;
+
+      return (
+        <div className="space-y-1.5 leading-snug">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Input
+              value={draft}
+              onChange={(e) => {
+                const next = normalizeInnInput(e.target.value);
+                setInnDrafts((prev) => ({
+                  ...prev,
+                  [supplier.id]: next,
+                }));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canSave) {
+                  e.preventDefault();
+                  void saveSupplierInn(supplier);
+                }
+              }}
+              placeholder="10 или 12 цифр"
+              disabled={!backendId || typeof onUpdateSupplierInn !== "function"}
+              className={cn(
+                "h-7 min-w-0 border-[#2f3a4d] bg-[#0f1724] px-2 text-[12px] text-white placeholder:text-white/35",
+                isInvalid && "border-red-500/60 text-red-200"
+              )}
+              title="Введите ИНН поставщика"
+            />
+
+            <button
+              type="button"
+              onClick={() => void saveSupplierInn(supplier)}
+              disabled={!canSave}
+              className={cn(
+                "inline-flex h-7 shrink-0 items-center rounded-md border px-2 text-[11px] font-semibold transition",
+                canSave
+                  ? "border-[#ffbf00]/40 bg-[#ffbf00]/10 text-[#ffbf00] hover:bg-[#ffbf00] hover:text-[#2b2100]"
+                  : "border-white/10 bg-white/5 text-white/35"
+              )}
+              title="Сохранить ИНН"
+            >
+              {isSaving ? "..." : "OK"}
+            </button>
+          </div>
+
+          {isInvalid ? (
+            <div className="text-[11px] text-red-300">
+              10 или 12 цифр
+            </div>
+          ) : savedInn ? (
+            <div className="text-[11px] text-emerald-300">
+              ИНН сохранён вручную
+            </div>
+          ) : (
+            <div className="text-[11px] text-muted-foreground">
+              ИНН не указан
+            </div>
+          )}
+
+          <div className="inline-flex w-fit items-center rounded-md border border-[#ffbf00]/25 bg-[#ffbf00]/10 px-2 py-0.5 text-[11px] font-semibold text-[#ffbf00]">
+            ЗЧБ: —/10
+          </div>
+        </div>
+      );
+    })()}
+  </TableCell>
+) : (
+  <TableCell className="align-middle px-3 py-3">
+    {href !== "#" ? (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(
+          "inline-block max-w-full text-primary hover:underline",
+          readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+        )}
+        title={hostLabel}
+      >
+        {hostLabel}
+      </a>
+    ) : (
+      <span
+        className={cn(
+          "inline-block max-w-full text-muted-foreground",
+          readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
+        )}
+        title={hostLabel}
+      >
+        {hostLabel}
+      </span>
+    )}
+  </TableCell>
+)}
+
+  <TableCell className="px-2 text-center align-middle">
   <SupplierStatusBadge
                       status={supplier.status}
                       onShowError={
@@ -844,7 +1131,7 @@ const uploadQuoteDisabled =
                   </TableCell>
 
 {showQuoteColumn && (
-  <TableCell className="w-[420px] min-w-[420px] px-3 align-middle">
+  <TableCell className="min-w-0 px-2 py-2 align-middle">
     <div className="flex min-w-0 flex-col gap-1.5">
       {/* 1. Верхняя строка: текущий статус + подпись */}
       <div className="flex min-w-0 items-center gap-2">
@@ -914,7 +1201,7 @@ const uploadQuoteDisabled =
           )}
           title="Поставщик прислал КП"
         >
-          КП
+          КП 
         </button>
 
         <button
@@ -963,8 +1250,8 @@ const uploadQuoteDisabled =
       </div>
 
       {/* 3. Нижняя строка: фиксированная отметка КП + действия */}
-      <div className="flex w-full items-center justify-start gap-2">
-        <div className="flex w-[102px] shrink-0 items-center justify-start">
+      <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5">
+        <div className="flex shrink-0 items-center justify-start">
           <label
             className={cn(
               "inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted-foreground transition hover:text-white",
@@ -985,8 +1272,8 @@ const uploadQuoteDisabled =
           </label>
         </div>
 
-        <div className="flex min-w-0 flex-nowrap items-center justify-start gap-1.5 whitespace-nowrap">
-          {backendId && quoteFileCount > 0 && onOpenQuoteFile ? (
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5">
+          {!analysisMode && backendId && quoteFileCount > 0 && onOpenQuoteFile ? (
             <button
               type="button"
               onClick={(event) => {
@@ -1009,7 +1296,7 @@ const uploadQuoteDisabled =
             </button>
           ) : null}
 
-          {replyDialogCount > 0 ? (
+          {!analysisMode && replyDialogCount > 0 ? (
             <button
               type="button"
               onClick={(event) => {
@@ -1084,7 +1371,8 @@ const uploadQuoteDisabled =
       </div>
     </div>
   </TableCell>
-)}                  {!readOnly && (
+)}
+                  {!readOnly && (
                     <TableCell>
                       <Button
                         variant="ghost"

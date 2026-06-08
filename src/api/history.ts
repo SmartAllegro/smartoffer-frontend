@@ -150,6 +150,8 @@ export type HistoryDetailResult = {
   snippet: string;
   emails: string[];
   score: number;
+  supplier_inn?: string | null;
+  supplier_inn_updated_at?: string | null;
 
   email_statuses?: EmailStatusItem[];
 
@@ -166,6 +168,28 @@ export type HistoryDetailResult = {
   last_reply_at?: string | null;
   latest_reply?: SupplierReplyItem | null;
 };
+
+export type SupplierInnUpdateResponse = {
+  ok: boolean;
+  result_id: number;
+  supplier_inn?: string | null;
+  supplier_inn_updated_at?: string | null;
+};
+
+export async function updateResultSupplierInn(
+  resultId: number,
+  supplierInn: string | null
+): Promise<SupplierInnUpdateResponse> {
+  return apiFetch<SupplierInnUpdateResponse>(
+    `/history/results/${resultId}/inn`,
+    {
+      method: "POST",
+      json: {
+        supplier_inn: supplierInn,
+      },
+    }
+  );
+}
 
 export type HistoryDetailResponse = {
   job: {

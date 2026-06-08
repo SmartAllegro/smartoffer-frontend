@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
@@ -800,6 +800,7 @@ function StatCard({
 
 export default function HistoryPage() {
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const [items, setItems] = useState<HistoryListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -859,6 +860,13 @@ export default function HistoryPage() {
   const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
 
   const canShowEmail = (emailSubject || "").trim() || (emailBody || "").trim();
+
+const openDetail = useCallback(
+  (item: HistoryListItem) => {
+    navigate(`/requests/${item.id}`);
+  },
+  [navigate]
+);
 
 useEffect(() => {
   fetchTeamMe()
@@ -1153,86 +1161,7 @@ const loadDeliveryItems = useCallback(async () => {
     setDeliveryNoteMode("day");
   }
 
-  async function openDetail(item: HistoryListItem) {
-    const jid = item.id;
-
-    setDetailJobId(jid);
-    setDetailOpen(true);
-    setDetailLoading(true);
-    setDetailSuppliers([]);
-    setDetailTitle(displayTitle(item));
-
-    setEmailSubject("");
-    setEmailBody("");
-
-    try {
-      const detail =
-        historyScope === "team"
-          ? await getTeamHistoryDetail(jid)
-          : await getHistoryDetail(jid);
-      
-      const subj =
-        detail?.job?.email_subject ??
-        item.email_subject ??
-        `Запрос КП — ${item.query || ""}`.trim();
-
-      const body = detail?.job?.email_body ?? "";
-
-      setEmailSubject(typeof subj === "string" ? subj : "");
-      setEmailBody(typeof body === "string" ? body : "");
-
-      const createdAt = detail.job?.created_at
-        ? new Date(detail.job.created_at)
-        : new Date();
-
-      const suppliers: Supplier[] = (detail.results || []).map((r: any) => {
-        const derived = deriveSupplierStatus(r);
-
-        const title =
-          typeof r?.title === "string" && r.title.trim()
-            ? r.title
-            : r?.domain || "—";
-
-        const firstEmail =
-          Array.isArray(r?.emails) && r.emails.length ? r.emails[0] : "";
-
-        return {
-          id: `hist-${jid}-${r.id ?? Math.random().toString(16).slice(2)}`,
-          request_id: `job-${jid}`,
-          supplier_name: title,
-          contact: firstEmail || "",
-          source_url: r?.url || "",
-          selected: true,
-          status: derived.status,
-          created_at: createdAt,
-          backend_result_id: typeof r?.id === "number" ? r.id : undefined,
-          error_message: derived.error_message,
-          error_details: derived.error_details,
-          quote_received: !!r?.quote_received,
-          quote_received_at: r?.quote_received_at ? new Date(r.quote_received_at) : null,
-reply_status: r?.reply_status || "no_reply",
-quote_source: r?.quote_source || null,
-quote_file_count: normalizeNumber(r?.quote_file_count),
-supplier_replies_count: normalizeNumber(r?.supplier_replies_count),
-unread_supplier_replies_count: normalizeNumber(r?.unread_supplier_replies_count),
-last_reply_at: r?.last_reply_at ? new Date(r.last_reply_at) : null,
-latest_reply: r?.latest_reply || null,
-        } as Supplier;
-      });
-
-      setDetailSuppliers(suppliers);
-    } catch (e) {
-      toast({
-        title: "Не удалось загрузить результаты",
-        description: e instanceof Error ? e.message : "Ошибка",
-        variant: "destructive",
-      });
-      setDetailOpen(false);
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
+  
   async function handleToggleDeal(
   item: HistoryListItem,
   next: boolean,
@@ -2126,7 +2055,7 @@ const handleUploadQuoteFile = useCallback(
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          openDetail(item);
+                          navigate(`/requests/${item.id}`);
                         }}
                         className="
                           relative

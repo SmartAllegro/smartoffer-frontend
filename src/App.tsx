@@ -21,6 +21,7 @@ import DataRetentionPolicy from "./pages/DataRetentionPolicy";
 import PersonalDataConsent from "./pages/PersonalDataConsent";
 import PaymentResult from "./pages/PaymentResult";
 import HistoryPage from "./pages/HistoryPage";
+import RequestDetailPage from "./pages/RequestDetailPage";
 import ChatPage from "./pages/ChatPage";
 import { trackPageView } from "@/api/tracking";
 
@@ -53,6 +54,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/requests/:jobId" element={<RequestDetailPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/email-verification" element={<EmailVerification />} />
           <Route path="/imap-email-sync-consent" element={<ImapEmailSyncConsent />} />

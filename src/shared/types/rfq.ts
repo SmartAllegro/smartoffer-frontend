@@ -37,6 +37,9 @@ export interface Supplier {
   created_at: Date;
   backend_result_id?: number;
 
+  supplier_inn?: string | null;
+  supplier_inn_updated_at?: Date | null;
+
   error_message?: string;
   error_details?: string;
   error_code?: string;
