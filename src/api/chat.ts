@@ -240,3 +240,15 @@ export async function downloadChatAttachment(attachmentId: number): Promise<{
       "application/octet-stream",
   };
 }
+
+export async function updateChatMessage(
+  messageId: number,
+  bodyText: string
+): Promise<ChatMessage> {
+  return apiFetch<ChatMessage>(`/chat/messages/${messageId}`, {
+    method: "PATCH",
+    json: {
+      body_text: bodyText,
+    },
+  });
+}

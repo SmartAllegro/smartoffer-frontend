@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronUp,
   Download,
   History,
   Loader2,
   MessageCircle,
   Paperclip,
+  Pencil,
   RefreshCw,
   Search,
   Send,
@@ -17,6 +21,7 @@ import {
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { Textarea } from "@/shared/ui/textarea";
 import { RadarLogo } from "@/shared/ui/RadarLogo";
 import { cn } from "@/shared/utils/utils";
 import { useToast } from "@/shared/hooks/use-toast";
@@ -29,6 +34,7 @@ import {
   markChatDialogRead,
   openDirectChatDialog,
   sendChatMessage,
+  updateChatMessage,
   uploadChatAttachment,
   type ChatAttachment,
   type ChatDialog,
@@ -91,6 +97,59 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function localDateKey(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatChatDateSeparator(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const today = new Date();
+
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const messageKey = localDateKey(value);
+  const todayKey = localDateKey(today.toISOString());
+  const yesterdayKey = localDateKey(yesterday.toISOString());
+
+  if (messageKey === todayKey) return "Сегодня";
+  if (messageKey === yesterdayKey) return "Вчера";
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    ...(date.getFullYear() !== today.getFullYear()
+      ? { year: "numeric" }
+      : {}),
+  }).format(date);
+}
+
+function shouldShowDateSeparator(
+  previousMessage?: ChatMessage | null,
+  currentMessage?: ChatMessage | null
+) {
+  if (!currentMessage) return false;
+  if (!previousMessage) return true;
+
+  return (
+    localDateKey(previousMessage.created_at) !==
+    localDateKey(currentMessage.created_at)
+  );
 }
 
 function formatFileSize(sizeBytes?: number | null) {
@@ -198,23 +257,33 @@ function highlightSearchText(text: string, query: string) {
   const lowerText = text.toLowerCase();
   const lowerQuery = q.toLowerCase();
 
-  const index = lowerText.indexOf(lowerQuery);
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let index = lowerText.indexOf(lowerQuery, cursor);
 
-  if (index < 0) return text;
+  while (index >= 0) {
+    if (index > cursor) {
+      parts.push(text.slice(cursor, index));
+    }
 
-  const before = text.slice(0, index);
-  const match = text.slice(index, index + q.length);
-  const after = text.slice(index + q.length);
-
-  return (
-    <>
-      {before}
-      <mark className="rounded bg-primary/35 px-0.5 text-inherit">
-        {match}
+    parts.push(
+      <mark
+        key={`${index}-${cursor}`}
+        className="rounded bg-primary/40 px-0.5 font-semibold text-inherit"
+      >
+        {text.slice(index, index + q.length)}
       </mark>
-      {after}
-    </>
-  );
+    );
+
+    cursor = index + q.length;
+    index = lowerText.indexOf(lowerQuery, cursor);
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+
+  return parts;
 }
 
 function normalizeChatAccessError(error: unknown): string {
@@ -284,14 +353,19 @@ export default function ChatPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const [dialogSearchQuery, setDialogSearchQuery] = useState("");
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const searchResultRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFilePreviewUrl, setSelectedFilePreviewUrl] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const messageInputRef = useRef<HTMLInputElement | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [attachmentPreviewUrls, setAttachmentPreviewUrls] = useState<Record<number, string>>({});
   const attachmentPreviewUrlsRef = useRef<Record<number, string>>({});
@@ -523,13 +597,68 @@ export default function ChatPage() {
     return dialogs.find((dialog) => dialog.id === selectedDialogId) || null;
   }, [dialogs, selectedDialogId]);
 
-const filteredMessages = useMemo(() => {
-  const q = dialogSearchQuery.trim();
+  const searchMatchedMessages = useMemo(() => {
+    const q = dialogSearchQuery.trim();
 
-  if (!q) return messages;
+    if (!q) return [];
 
-  return messages.filter((message) => messageMatchesSearch(message, q));
-}, [messages, dialogSearchQuery]);
+    return messages.filter((message) => messageMatchesSearch(message, q));
+  }, [messages, dialogSearchQuery]);
+
+  const searchResultsCount = dialogSearchQuery.trim()
+    ? searchMatchedMessages.length
+    : 0;
+
+  const activeSearchMessage =
+    searchResultsCount > 0
+      ? searchMatchedMessages[Math.min(activeSearchIndex, searchResultsCount - 1)]
+      : null;
+
+  useEffect(() => {
+    setActiveSearchIndex(0);
+  }, [dialogSearchQuery, selectedDialogId]);
+
+  useEffect(() => {
+    if (!dialogSearchQuery.trim()) return;
+    if (searchMatchedMessages.length === 0) return;
+
+    if (activeSearchIndex > searchMatchedMessages.length - 1) {
+      setActiveSearchIndex(0);
+    }
+  }, [activeSearchIndex, searchMatchedMessages.length, dialogSearchQuery]);
+
+  useEffect(() => {
+    if (!dialogSearchQuery.trim()) return;
+
+    const activeMessage = searchMatchedMessages[activeSearchIndex];
+    if (!activeMessage) return;
+
+    window.setTimeout(() => {
+      searchResultRefs.current[activeMessage.id]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 0);
+  }, [activeSearchIndex, searchMatchedMessages, dialogSearchQuery]);
+
+  function clearDialogSearch() {
+    setDialogSearchQuery("");
+    setActiveSearchIndex(0);
+  }
+
+  function goToSearchResult(direction: 1 | -1) {
+    if (!dialogSearchQuery.trim()) return;
+    if (searchMatchedMessages.length === 0) return;
+
+    setActiveSearchIndex((current) => {
+      const next = current + direction;
+
+      if (next < 0) return searchMatchedMessages.length - 1;
+      if (next >= searchMatchedMessages.length) return 0;
+
+      return next;
+    });
+  }
 
   const selectedMember = useMemo(() => {
     if (selectedDialog) return null;
@@ -642,9 +771,83 @@ const filteredMessages = useMemo(() => {
     }
   }
 
-  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+function startEditMessage(message: ChatMessage) {
+  if (!message.is_own) return;
+
+  setEditingMessageId(message.id);
+  setEditingDraft(message.body_text || "");
+}
+
+function cancelEditMessage() {
+  setEditingMessageId(null);
+  setEditingDraft("");
+}
+
+async function saveEditedMessage(message: ChatMessage) {
+  if (!editingMessageId || savingEdit) return;
+
+  const body = editingDraft.trim();
+  const attachments = Array.isArray(message.attachments)
+    ? message.attachments
+    : [];
+
+  if (!body && attachments.length === 0) {
+    toast({
+      title: "Сообщение не может быть пустым",
+      description: "Введите текст или оставьте вложение.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setSavingEdit(true);
+
+  try {
+    const updated = await updateChatMessage(message.id, body);
+
+    setMessages((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item))
+    );
+
+    setEditingMessageId(null);
+    setEditingDraft("");
+
+    await refreshSidebar();
+  } catch (e) {
+    toast({
+      title: "Не удалось изменить сообщение",
+      description: e instanceof Error ? e.message : "Ошибка",
+      variant: "destructive",
+    });
+  } finally {
+    setSavingEdit(false);
+  }
+}
+
+function handleEditKeyDown(
+  event: React.KeyboardEvent<HTMLTextAreaElement>,
+  message: ChatMessage
+) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelEditMessage();
+    return;
+  }
+
+  if (event.key !== "Enter") return;
+
+  if (event.shiftKey) return;
+
+  event.preventDefault();
+  saveEditedMessage(message);
+}
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter") return;
-    if (event.shiftKey) return;
+
+    if (event.shiftKey) {
+      return;
+    }
 
     event.preventDefault();
     handleSendMessage();
@@ -811,8 +1014,8 @@ const filteredMessages = useMemo(() => {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <div className="h-screen overflow-hidden bg-background text-foreground">
+  <div className="mx-auto flex h-screen max-w-7xl flex-col overflow-hidden px-4 py-6 sm:px-6 lg:px-8">
         <header className="mb-5">
   <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
     <div className="flex justify-center sm:block">
@@ -868,8 +1071,8 @@ const filteredMessages = useMemo(() => {
   </div>
 </header>
 
-        <main className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[350px_minmax(0,1fr)]">
-          <aside className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-card">
+        <main className="grid min-h-0 flex-1 overflow-hidden gap-4 lg:grid-cols-[350px_minmax(0,1fr)]">
+          <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card">
             <div className="border-b border-border p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -995,7 +1198,7 @@ const filteredMessages = useMemo(() => {
             </div>
           </aside>
 
-          <section className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-card">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card">
             <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary">
@@ -1012,237 +1215,394 @@ const filteredMessages = useMemo(() => {
                 </div>
               </div>
 
-              <div className="hidden min-w-[260px] max-w-[360px] flex-1 flex-col items-end gap-2 sm:flex">
-  <div className="relative w-full">
-    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <div className="hidden min-w-[260px] max-w-[390px] flex-1 flex-col items-end gap-2 sm:flex">
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
-    <Input
-      value={dialogSearchQuery}
-      onChange={(event) => setDialogSearchQuery(event.target.value)}
-      placeholder="Поиск в диалоге..."
-      className="h-9 border-border bg-background/70 pl-9 text-sm"
-      disabled={!selectedDialogId}
-    />
-  </div>
+                  <Input
+                    value={dialogSearchQuery}
+                    onChange={(event) => setDialogSearchQuery(event.target.value)}
+                    placeholder="Поиск в диалоге..."
+                    className="h-9 border-border bg-background/70 pl-9 pr-36 text-sm"
+                    disabled={!selectedDialogId}
+                  />
 
-  <div className="text-right text-xs text-muted-foreground">
-    {dialogSearchQuery.trim()
-      ? `Найдено: ${filteredMessages.length}`
-      : selectedDialog?.last_message_at
-        ? `Последнее сообщение: ${formatDateTime(selectedDialog.last_message_at)}`
-        : "История диалога"}
-  </div>
-</div>
+                  <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                    {dialogSearchQuery.trim() && (
+                      <span className="min-w-[42px] text-center text-xs text-muted-foreground">
+                        {searchResultsCount > 0
+                          ? `${activeSearchIndex + 1}/${searchResultsCount}`
+                          : "0/0"}
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => goToSearchResult(-1)}
+                      disabled={!dialogSearchQuery.trim() || searchResultsCount === 0}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
+                      title="Предыдущее совпадение"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => goToSearchResult(1)}
+                      disabled={!dialogSearchQuery.trim() || searchResultsCount === 0}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
+                      title="Следующее совпадение"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={clearDialogSearch}
+                      disabled={!dialogSearchQuery.trim()}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
+                      title="Сбросить поиск"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-right text-xs text-muted-foreground">
+                  {dialogSearchQuery.trim()
+                    ? `Найдено: ${searchResultsCount}`
+                    : selectedDialog?.last_message_at
+                      ? `Последнее сообщение: ${formatDateTime(selectedDialog.last_message_at)}`
+                      : "История диалога"}
+                </div>
+              </div>
             </div>
 
-<div className="border-b border-border px-5 py-3 sm:hidden">
-  <div className="relative">
-    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <div className="border-b border-border px-5 py-3 sm:hidden">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
-    <Input
-      value={dialogSearchQuery}
-      onChange={(event) => setDialogSearchQuery(event.target.value)}
-      placeholder="Поиск в диалоге..."
-      className="h-10 border-border bg-background/70 pl-9 text-sm"
-      disabled={!selectedDialogId}
-    />
-  </div>
+                <Input
+                  value={dialogSearchQuery}
+                  onChange={(event) => setDialogSearchQuery(event.target.value)}
+                  placeholder="Поиск в диалоге..."
+                  className="h-10 border-border bg-background/70 pl-9 pr-36 text-sm"
+                  disabled={!selectedDialogId}
+                />
 
-  {dialogSearchQuery.trim() && (
-    <div className="mt-2 text-xs text-muted-foreground">
-      Найдено: {filteredMessages.length}
-    </div>
-  )}
-</div>
+                <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                  {dialogSearchQuery.trim() && (
+                    <span className="min-w-[42px] text-center text-xs text-muted-foreground">
+                      {searchResultsCount > 0
+                        ? `${activeSearchIndex + 1}/${searchResultsCount}`
+                        : "0/0"}
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => goToSearchResult(-1)}
+                    disabled={!dialogSearchQuery.trim() || searchResultsCount === 0}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
+                    title="Предыдущее совпадение"
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => goToSearchResult(1)}
+                    disabled={!dialogSearchQuery.trim() || searchResultsCount === 0}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
+                    title="Следующее совпадение"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={clearDialogSearch}
+                    disabled={!dialogSearchQuery.trim()}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
+                    title="Сбросить поиск"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {dialogSearchQuery.trim() && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Найдено: {searchResultsCount}
+                </div>
+              )}
+            </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-  {!selectedDialogId ? (
-    <div className="flex h-full items-center justify-center">
-      <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
-        <MessageCircle className="mx-auto h-10 w-10 text-primary" />
-        <div className="mt-3 text-base font-semibold text-white">
-          Выберите сотрудника
-        </div>
-        <div className="mt-2 text-sm text-muted-foreground">
-          Откройте диалог из списка слева или начните новый чат с сотрудником команды.
-        </div>
-      </div>
+              {!selectedDialogId ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
+                    <MessageCircle className="mx-auto h-10 w-10 text-primary" />
+                    <div className="mt-3 text-base font-semibold text-white">
+                      Выберите сотрудника
+                    </div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      Откройте диалог из списка слева или начните новый чат с сотрудником команды.
+                    </div>
+                  </div>
+                </div>
+              ) : messagesLoading && messages.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
+                  Загрузка сообщений…
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
+                    <MessageCircle className="mx-auto h-10 w-10 text-primary" />
+                    <div className="mt-3 text-base font-semibold text-white">
+                      Сообщений пока нет
+                    </div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      Напишите первое сообщение сотруднику.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {dialogSearchQuery.trim() && searchResultsCount === 0 && (
+                    <div className="flex justify-center py-2">
+                      <div className="rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-semibold text-muted-foreground">
+                        Совпадений не найдено
+                      </div>
+                    </div>
+                  )}
+
+                  {messages.map((message, index) => {
+                    const previousMessage = index > 0 ? messages[index - 1] : null;
+                    const showDateSeparator = shouldShowDateSeparator(previousMessage, message);
+                    const isActiveSearchResult =
+                      Boolean(dialogSearchQuery.trim()) &&
+                      activeSearchMessage?.id === message.id;
+                    const attachments = Array.isArray(message.attachments)
+                      ? message.attachments
+                      : [];
+
+                    return (
+                      <div
+  key={`message-group-${message.id}`}
+  ref={(node) => {
+    searchResultRefs.current[message.id] = node;
+  }}
+  className="space-y-3"
+>
+                        {showDateSeparator && (
+                          <div className="flex justify-center py-2">
+                            <div className="rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm">
+                              {formatChatDateSeparator(message.created_at)}
+                            </div>
+                          </div>
+                        )}
+
+                        <div
+                          className={cn(
+                            "flex w-full",
+                            message.is_own ? "justify-end" : "justify-start"
+                          )}
+                        >
+                          <div
+                            className={cn(
+  "inline-flex max-w-[86%] items-center gap-3 rounded-[14px] px-4 py-2 text-sm shadow-sm transition-colors",
+  isActiveSearchResult
+    ? "border border-primary bg-primary text-[#2b2100]"
+    : message.is_own
+      ? "border border-primary/45 bg-primary/15 text-white"
+      : "border border-border bg-muted/60 text-white"
+)}
+                          >
+                            <div className="min-w-0 flex-1">
+                              {!message.is_own && (
+                                <div className="mb-1 text-xs font-semibold text-muted-foreground">
+                                  {message.sender_name || message.sender_email || "Сотрудник"}
+                                </div>
+                              )}
+
+                              {editingMessageId === message.id ? (
+  <div className="space-y-2">
+    <Textarea
+      value={editingDraft}
+      onChange={(event) => setEditingDraft(event.target.value)}
+      onKeyDown={(event) => handleEditKeyDown(event, message)}
+      disabled={savingEdit}
+      className="min-h-20 resize-none border-border bg-background/70 text-white"
+      maxLength={4000}
+      autoFocus
+    />
+
+    <div className="flex justify-end gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={cancelEditMessage}
+        disabled={savingEdit}
+        className="h-8 px-3"
+      >
+        <X className="mr-1 h-3.5 w-3.5" />
+        Отмена
+      </Button>
+
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => saveEditedMessage(message)}
+        disabled={savingEdit}
+        className="h-8 px-3"
+      >
+        {savingEdit ? (
+          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Check className="mr-1 h-3.5 w-3.5" />
+        )}
+        Сохранить
+      </Button>
     </div>
-  ) : messagesLoading && messages.length === 0 ? (
-    <div className="flex h-full items-center justify-center text-muted-foreground">
-      <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
-      Загрузка сообщений…
-    </div>
-  ) : messages.length === 0 ? (
-    <div className="flex h-full items-center justify-center">
-      <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
-        <MessageCircle className="mx-auto h-10 w-10 text-primary" />
-        <div className="mt-3 text-base font-semibold text-white">
-          Сообщений пока нет
-        </div>
-        <div className="mt-2 text-sm text-muted-foreground">
-          Напишите первое сообщение сотруднику.
-        </div>
-      </div>
-    </div>
-      ) : dialogSearchQuery.trim() && filteredMessages.length === 0 ? (
-  <div className="flex h-full items-center justify-center">
-    <div className="max-w-sm rounded-2xl border border-dashed border-border p-6 text-center">
-      <Search className="mx-auto h-10 w-10 text-primary" />
-      <div className="mt-3 text-base font-semibold text-white">
-        Ничего не найдено
-      </div>
-      <div className="mt-2 text-sm text-muted-foreground">
-        Попробуйте другое слово или очистите поиск.
-      </div>
+
+    <div className="text-[11px] text-muted-foreground">
+      Enter — сохранить. Shift+Enter — новая строка. Esc — отмена.
     </div>
   </div>
-) : (
-  <div className="space-y-3">
-    {filteredMessages.map((message) => {
-        const attachments = Array.isArray(message.attachments)
-          ? message.attachments
-          : [];
+) : message.body_text ? (
+  <div className="whitespace-pre-wrap break-words leading-snug">
+    {highlightSearchText(message.body_text, dialogSearchQuery)}
+  </div>
+) : null}
 
-        return (
-          <div
-            key={message.id}
-            className={cn(
-              "flex w-full",
-              message.is_own ? "justify-end" : "justify-start"
-            )}
-          >
-            <div
-              className={cn(
-  "inline-flex max-w-[86%] min-w-[190px] items-end gap-3 rounded-[22px] px-4 py-2 text-sm shadow-sm sm:min-w-[240px]",
-  message.is_own
-    ? "border border-primary/40 bg-primary text-[#2b2100]"
-    : "border border-border bg-muted/60 text-white"
-)}
-            >
-              <div className="min-w-0 flex-1">
-                {!message.is_own && (
-                  <div className="mb-1 text-xs font-semibold text-muted-foreground">
-                    {message.sender_name || message.sender_email || "Сотрудник"}
-                  </div>
-                )}
+                              {attachments.length > 0 && (
+                                <div className={cn("mt-2 space-y-1", !message.body_text && "mt-0")}>
+                                  {attachments.map((attachment) => {
+                                    const previewUrl = attachmentPreviewUrls[attachment.id];
+                                    const image = isImageAttachment(attachment);
 
-                {message.body_text && (
-                  <div className="whitespace-pre-wrap break-words leading-snug">
-                    {highlightSearchText(message.body_text, dialogSearchQuery)}
-                  </div>
-                )}
+                                    if (image && previewUrl) {
+                                      return (
+                                        <button
+                                          key={attachment.id}
+                                          type="button"
+                                          onClick={() => handleDownloadAttachment(attachment)}
+                                          className={cn(
+                                            "block w-full max-w-[320px] overflow-hidden rounded-xl border text-left transition",
+                                            message.is_own
+                                              ? "border-primary/30 bg-primary/10 hover:bg-primary/15"
+                                              : "border-white/10 bg-black/15 hover:bg-black/25"
+                                          )}
+                                          title="Скачать изображение"
+                                        >
+                                          <img
+                                            src={previewUrl}
+                                            alt={attachment.original_filename || "Изображение"}
+                                            className="max-h-[260px] w-full object-contain"
+                                          />
 
-                {attachments.length > 0 && (
-                  <div className={cn("mt-2 space-y-1", !message.body_text && "mt-0")}>
-                    {attachments.map((attachment) => {
-                      const previewUrl = attachmentPreviewUrls[attachment.id];
-                      const image = isImageAttachment(attachment);
+                                          <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                                            <Paperclip className="h-4 w-4 shrink-0" />
 
-                      if (image && previewUrl) {
-                        return (
-                          <button
-                            key={attachment.id}
-                            type="button"
-                            onClick={() => handleDownloadAttachment(attachment)}
-                            className={cn(
-                              "block w-full max-w-[320px] overflow-hidden rounded-xl border text-left transition",
-                              message.is_own
-                                ? "border-[#5b4200]/25 bg-[#2b2100]/10 hover:bg-[#2b2100]/15"
-                                : "border-white/10 bg-black/15 hover:bg-black/25"
-                            )}
-                            title="Скачать изображение"
-                          >
-                            <img
-                              src={previewUrl}
-                              alt={attachment.original_filename || "Изображение"}
-                              className="max-h-[260px] w-full object-contain"
-                            />
+                                            <span className="min-w-0 flex-1">
+                                              <span className="block truncate font-semibold">
+                                                {highlightSearchText(
+                                                  attachment.original_filename || "Изображение",
+                                                  dialogSearchQuery
+                                                )}
+                                              </span>
 
-                            <div className="flex items-center gap-2 px-3 py-2 text-xs">
-                              <Paperclip className="h-4 w-4 shrink-0" />
+                                              <span className="block text-[11px] text-muted-foreground">
+                                                {formatFileSize(attachment.size_bytes)}
+                                              </span>
+                                            </span>
 
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate font-semibold">
-                                  {attachment.original_filename || "Изображение"}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "block text-[11px]",
-                                    message.is_own
-                                      ? "text-[#5b4200]/70"
-                                      : "text-muted-foreground"
-                                  )}
-                                >
-                                  {formatFileSize(attachment.size_bytes)}
-                                </span>
-                              </span>
+                                            <Download className="h-4 w-4 shrink-0 opacity-70" />
+                                          </div>
+                                        </button>
+                                      );
+                                    }
 
-                              <Download className="h-4 w-4 shrink-0 opacity-70" />
-                            </div>
-                          </button>
-                        );
-                      }
+                                    return (
+                                      <button
+                                        key={attachment.id}
+                                        type="button"
+                                        onClick={() => handleDownloadAttachment(attachment)}
+                                        className={cn(
+                                          "flex w-full max-w-[260px] items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition",
+                                          message.is_own
+                                            ? "border-primary/30 bg-primary/10 hover:bg-primary/15"
+                                            : "border-white/10 bg-black/15 hover:bg-black/25"
+                                        )}
+                                        title="Скачать файл"
+                                      >
+                                        <Paperclip className="h-4 w-4 shrink-0" />
 
-                      return (
-                        <button
-                          key={attachment.id}
-                          type="button"
-                          onClick={() => handleDownloadAttachment(attachment)}
-                          className={cn(
-                            "flex w-full max-w-[260px] items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition",
-                            message.is_own
-                              ? "border-[#5b4200]/25 bg-[#2b2100]/10 hover:bg-[#2b2100]/15"
-                              : "border-white/10 bg-black/15 hover:bg-black/25"
-                          )}
-                          title="Скачать файл"
-                        >
-                          <Paperclip className="h-4 w-4 shrink-0" />
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate font-semibold">
+                                            {highlightSearchText(
+                                              attachment.original_filename || "Файл",
+                                              dialogSearchQuery
+                                            )}
+                                          </span>
 
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-semibold">
-                              {attachment.original_filename || "Файл"}
-                            </span>
-                            <span
-                              className={cn(
-                                "block text-[11px]",
-                                message.is_own
-                                  ? "text-[#5b4200]/70"
-                                  : "text-muted-foreground"
+                                          <span className="block text-[11px] text-muted-foreground">
+                                            {formatFileSize(attachment.size_bytes)}
+                                          </span>
+                                        </span>
+
+                                        <Download className="h-4 w-4 shrink-0 opacity-70" />
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
-                            >
-                              {formatFileSize(attachment.size_bytes)}
-                            </span>
-                          </span>
+                            </div>
 
-                          <Download className="h-4 w-4 shrink-0 opacity-70" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div
-                className={cn(
-                  "shrink-0 self-end whitespace-nowrap pb-0.5 text-[11px] leading-none",
-                  message.is_own
-                    ? "text-[#5b4200]/75"
-                    : "text-muted-foreground"
-                )}
-              >
-                {formatTime(message.created_at)}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-
-      <div ref={messagesEndRef} />
-    </div>
+                            <div className="flex shrink-0 self-end items-center gap-1 pb-0.5">
+  {message.is_own && editingMessageId !== message.id && (
+    <button
+      type="button"
+      onClick={() => startEditMessage(message)}
+      className={cn(
+        "inline-flex h-6 w-6 items-center justify-center rounded-md border transition hover:bg-background/30",
+        isActiveSearchResult
+          ? "border-[#5b4200]/25 text-[#5b4200]/80"
+          : "border-border text-muted-foreground"
+      )}
+      title="Редактировать сообщение"
+    >
+      <Pencil className="h-3.5 w-3.5" />
+    </button>
   )}
-</div>
 
+  <span
+    className={cn(
+      "whitespace-nowrap text-[11px] leading-none",
+      isActiveSearchResult
+        ? "text-[#5b4200]/75"
+        : "text-muted-foreground"
+    )}
+  >
+    {formatTime(message.created_at)}
+    {message.edited_at && (
+      <span className="ml-1">· отредактировано</span>
+    )}
+  </span>
+</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
             <div className="border-t border-border p-4">
               {selectedFile && (
                 <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-background/55 px-3 py-2 text-xs text-muted-foreground">
@@ -1301,14 +1661,14 @@ const filteredMessages = useMemo(() => {
                   <Paperclip className="h-4 w-4" />
                 </Button>
 
-                <Input
+                <Textarea
                   ref={messageInputRef}
                   value={messageDraft}
                   onChange={(event) => setMessageDraft(event.target.value)}
                   onKeyDown={handleKeyDown}
                   disabled={!selectedDialogId || sending || uploadingFile}
                   placeholder="Введите сообщение..."
-                  className="h-12 border-border bg-background/70"
+                  className="min-h-12 max-h-32 resize-none border-border bg-background/70 py-3"
                   maxLength={4000}
                 />
 
@@ -1334,7 +1694,7 @@ const filteredMessages = useMemo(() => {
               </div>
 
               <div className="mt-2 text-xs text-muted-foreground">
-                Enter — отправить. Максимальный размер файла — 20 МБ.
+                Enter — отправить. Shift+Enter — новая строка. Максимальный размер файла — 20 МБ.
               </div>
             </div>
           </section>
