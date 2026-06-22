@@ -36,6 +36,8 @@ export interface Supplier {
   status: "found" | "sent" | "error";
   created_at: Date;
   backend_result_id?: number;
+  is_manual?: boolean;
+  address_book_contact_id?: number | null;
 
   supplier_inn?: string | null;
   supplier_inn_updated_at?: Date | null;

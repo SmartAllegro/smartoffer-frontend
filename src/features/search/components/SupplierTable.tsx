@@ -50,11 +50,23 @@ import {
 
 import { getTeamResultReplies } from "@/api/team";
 
+import {
+  AddSupplierModal,
+} from "@/features/search/components/AddSupplierModal";
+
+import type {
+  AddSupplierPayload,
+} from "@/api/search";
+
 interface SupplierTableProps {
   suppliers: Supplier[];
   onToggleSelect: (id: string) => void;
   onDelete: (id: string) => void;
-  onAdd: (email: string) => void;
+  onAdd: (
+    payload: AddSupplierPayload
+  ) => void | Promise<void>;
+
+  canAddSupplier?: boolean;
   disabled?: boolean;
   readOnly?: boolean;
   requestAnalysisMode?: boolean;
@@ -359,87 +371,6 @@ function ErrorModal({
   );
 }
 
-function AddManualEmailModal({
-  open,
-  onOpenChange,
-  onConfirm,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (email: string) => void;
-}) {
-  const [email, setEmail] = useState("");
-  const [touched, setTouched] = useState(false);
-
-  const normalized = email.trim();
-  const ok = isValidEmail(normalized);
-
-  const close = (v: boolean) => {
-    onOpenChange(v);
-    if (!v) {
-      setEmail("");
-      setTouched(false);
-    }
-  };
-
-  const submit = () => {
-    setTouched(true);
-    if (!ok) return;
-    onConfirm(normalized);
-    close(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="sm:max-w-md bg-card border-border">
-        <DialogHeader>
-          <DialogTitle className="text-foreground">
-            Добавить поставщика вручную
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">Введите email поставщика</p>
-            <Input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => setTouched(true)}
-              placeholder="example@company.ru"
-              className={cn(
-                "bg-muted/30",
-                touched &&
-                  !ok &&
-                  "border-destructive focus-visible:ring-destructive"
-              )}
-              autoFocus
-              inputMode="email"
-              autoComplete="email"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
-              }}
-            />
-            {touched && !ok && (
-              <p className="text-xs text-destructive">
-                Укажите корректный email (например, name@company.ru)
-              </p>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => close(false)}>
-              Отмена
-            </Button>
-            <Button onClick={submit} disabled={!ok}>
-              Добавить
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 const REPLY_STATUS_OPTIONS: Array<{
   value: SupplierReplyStatus;
   label: string;
@@ -559,6 +490,7 @@ export function SupplierTable({
   onToggleSelect,
   onDelete,
   onAdd,
+  canAddSupplier = false,
   historyScope = "personal",
   disabled = false,
   readOnly = false,
@@ -613,12 +545,45 @@ export function SupplierTable({
   };
 
   if (!suppliers.length) {
-    return (
-      <div className="text-center py-10 text-muted-foreground">
-        Введите наименование оборудования и нажмите "Найти поставщиков".
+  return (
+    <>
+      <div className="rounded-lg border border-border bg-card py-10 text-center">
+        <div className="text-sm font-medium text-foreground">
+          {canAddSupplier
+            ? "Поставщики по запросу не найдены"
+            : "Введите наименование оборудования и нажмите «Найти поставщиков»"}
+        </div>
+
+        {canAddSupplier && (
+          <>
+            <div className="mt-2 text-sm text-muted-foreground">
+              Добавьте email вручную или выберите поставщика из адресной книги.
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setAddModalOpen(true)
+              }
+              disabled={disabled}
+              className="mt-5 border-border text-foreground hover:bg-muted"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить вручную
+            </Button>
+          </>
+        )}
       </div>
-    );
-  }
+
+      <AddSupplierModal
+        open={addModalOpen}
+        onOpenChange={setAddModalOpen}
+        onConfirm={onAdd}
+      />
+    </>
+  );
+}
 
   const toggleAllDisabled =
     disabled || readOnly || selectableSuppliers.length === 0;
@@ -1394,7 +1359,7 @@ const uploadQuoteDisabled =
         </Table>
       </div>
 
-      {!readOnly && (
+      {!readOnly && canAddSupplier && (
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -1408,10 +1373,10 @@ const uploadQuoteDisabled =
         </div>
       )}
 
-      <AddManualEmailModal
+      <AddSupplierModal
         open={addModalOpen}
         onOpenChange={setAddModalOpen}
-        onConfirm={(email) => onAdd(email)}
+        onConfirm={onAdd}
       />
 
       <ErrorModal

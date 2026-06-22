@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Clock3,
   Users,
+  BookUser,
 } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 
@@ -50,6 +51,10 @@ import {
 } from "@/api/team";
 
 import { clearAuthToken } from "@/shared/utils/auth";
+
+import {
+  AddressBookSection,
+} from "@/features/settings/components/AddressBookSection";
 
 export const STORAGE_KEY = "smartoffer.settings";
 export const DEFAULT_TEMPLATE = `Добрый день!
@@ -183,7 +188,13 @@ export function SettingsModal({
   const { toast } = useToast();
 
   const [expanded, setExpanded] = React.useState<
-    "auth" | "billing" | "team" | "template" | "danger" | null
+    | "auth"
+    | "addressBook"
+    | "billing"
+    | "team"
+    | "template"
+    | "danger"
+    | null
   >("auth");
 
   const [state, setState] = React.useState<SettingsState>(() => loadSettings());
@@ -1055,6 +1066,35 @@ async function handleRemoveTeamManager(member: TeamMember) {
                 )}
               </div>
             )}
+
+<button
+  type="button"
+  onClick={() =>
+    setExpanded((current) =>
+      current === "addressBook"
+        ? null
+        : "addressBook"
+    )
+  }
+  className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
+>
+  <span className="flex items-center gap-2 font-medium">
+    <BookUser className="h-4 w-4 text-muted-foreground" />
+    Адресная книга
+  </span>
+
+  <ChevronDown
+    className={`h-4 w-4 transition-transform ${
+      expanded === "addressBook"
+        ? "rotate-180"
+        : ""
+    }`}
+  />
+</button>
+
+{expanded === "addressBook" && (
+  <AddressBookSection />
+)}
 
             <button
               type="button"

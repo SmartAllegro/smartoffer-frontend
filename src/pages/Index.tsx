@@ -10,7 +10,12 @@ import { Button } from '@/shared/ui/button';
 import { Brain, History, LogIn, LogOut, MessageCircle, ShieldAlert } from 'lucide-react';
 import { getChatUnreadCount } from "@/api/chat";
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
-import { searchSuppliers, type SearchMode } from "@/api/search";
+import {
+  addManualSearchResult,
+  searchSuppliers,
+  type AddSupplierPayload,
+  type SearchMode,
+} from "@/api/search";
 import { fetchBillingMe, type BillingMe } from '@/api/billing';
 import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
@@ -577,25 +582,153 @@ useEffect(() => {
     setSuppliers((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
-  const handleAddManual = useCallback((email: string) => {
-    const newSupplier: Supplier = {
-      id: `manual-${Date.now()}`,
-      request_id: requestId || `req-${Date.now()}`,
-      supplier_name: email.split('@')[1]?.split('.')[0] || 'Добавлено вручную',
-      contact: email,
-      source_url: '#',
-      selected: true,
-      status: 'found',
-      created_at: new Date(),
-      organization_id: CURRENT_ORGANIZATION_ID,
-      created_by_user_id: CURRENT_USER_ID,
-    };
-    setSuppliers((prev) => [...prev, newSupplier]);
-
-    if (status === 'idle') {
-      setStatus('search_completed');
+  const handleAddManual = useCallback(
+  async (
+    payload: AddSupplierPayload
+  ) => {
+    if (!searchJobId) {
+      throw new Error(
+        "Сначала выполните поиск поставщиков"
+      );
     }
-  }, [requestId, status]);
+
+    const result =
+      await addManualSearchResult(
+        searchJobId,
+        payload
+      );
+
+    const email =
+      Array.isArray(result.emails)
+        ? result.emails[0]?.trim() || ""
+        : "";
+
+    if (!email) {
+      throw new Error(
+        "Backend не вернул email поставщика"
+      );
+    }
+
+    const newSupplier: Supplier = {
+      id: `result-${result.id}`,
+
+      request_id:
+        requestId ||
+        `job-${searchJobId}`,
+
+      supplier_name:
+        result.title ||
+        result.domain ||
+        email,
+
+      contact: email,
+      contact_status: "email",
+      contact_label: email,
+
+      source_url: result.url || "",
+
+      selected: true,
+      status: "found",
+      created_at: new Date(),
+
+      backend_result_id: result.id,
+
+      is_manual:
+        Boolean(result.is_manual),
+
+      address_book_contact_id:
+        result.address_book_contact_id ??
+        null,
+    };
+
+    setSuppliers((current) => {
+      const existingIndex =
+        current.findIndex((supplier) => {
+          if (
+            supplier.backend_result_id ===
+            result.id
+          ) {
+            return true;
+          }
+
+          return (
+            supplier.contact
+              ?.trim()
+              .toLowerCase() ===
+            email.toLowerCase()
+          );
+        });
+
+      if (existingIndex === -1) {
+        return [
+          ...current,
+          newSupplier,
+        ];
+      }
+
+      return current.map(
+        (supplier, index) =>
+          index === existingIndex
+            ? {
+                ...supplier,
+
+                supplier_name:
+                  result.title ||
+                  supplier.supplier_name,
+
+                contact: email,
+                contact_status: "email",
+                contact_label: email,
+
+                source_url:
+                  result.url ||
+                  supplier.source_url,
+
+                selected:
+                  supplier.status === "sent"
+                    ? supplier.selected
+                    : true,
+
+                backend_result_id:
+                  result.id,
+
+                is_manual:
+                  Boolean(
+                    result.is_manual
+                  ),
+
+                address_book_contact_id:
+                  result.address_book_contact_id ??
+                  supplier.address_book_contact_id ??
+                  null,
+              }
+            : supplier
+      );
+    });
+
+    setNoSuppliersFound(false);
+
+    if (status === "idle") {
+      setStatus("search_completed");
+    }
+
+    toast({
+      title: result.created
+        ? "Поставщик добавлен"
+        : "Поставщик уже был в запросе",
+
+      description: result.contact_saved
+        ? `${email} добавлен в запрос и сохранён в адресной книге.`
+        : `${email} добавлен в текущий запрос.`,
+    });
+  },
+  [
+    requestId,
+    searchJobId,
+    status,
+    toast,
+  ]
+);
 
   const handleSettingsOpenChange = useCallback((next: boolean) => {
     setSettingsOpen(next);
@@ -889,6 +1022,10 @@ useEffect(() => {
               onToggleSelect={handleToggleSelect}
               onDelete={handleDelete}
               onAdd={handleAddManual}
+              canAddSupplier={
+                Boolean(searchJobId) &&
+                !isProcessing
+              }
               disabled={isProcessing}
             />
           </div>
