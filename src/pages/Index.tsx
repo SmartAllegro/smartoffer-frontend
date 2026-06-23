@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
 import { BillingCounter } from '@/features/search/components/BillingCounter';
 import { Button } from '@/shared/ui/button';
-import { Brain, History, LogIn, LogOut, MessageCircle, ShieldAlert } from 'lucide-react';
+import { BookOpen, Brain, History, LogIn, LogOut, MessageCircle, ShieldAlert } from 'lucide-react';
 import { getChatUnreadCount } from "@/api/chat";
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
 import {
@@ -21,7 +21,9 @@ import { useToast } from '@/shared/hooks/use-toast';
 import { useRequestHistory } from '@/features/search/hooks/useRequestHistory';
 import { CURRENT_ORGANIZATION_ID, CURRENT_USER_ID } from "@/shared/utils/tenant";
 import { RadarLogo } from "@/shared/ui/RadarLogo";
-
+import {
+  AddressBookModal,
+} from "@/features/address-book/components/AddressBookModal";
 import {
   createEquipmentAnalysis,
   type EquipmentAnalysisData,
@@ -184,6 +186,7 @@ export default function Index() {
 
   const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [addressBookOpen, setAddressBookOpen] = useState(false);
 
   const { toast } = useToast();
   const { addRequest, updateRequest } = useRequestHistory();
@@ -960,6 +963,18 @@ useEffect(() => {
                   </div>
                 </div>
 
+<Button
+  type="button"
+  variant="outline"
+  onClick={() =>
+    setAddressBookOpen(true)
+  }
+  disabled={!me}
+  className="h-9 w-full sm:w-auto"
+>
+  Адресная книга
+</Button>
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -1034,6 +1049,10 @@ useEffect(() => {
 
       <Footer />
 
+      <AddressBookModal
+        open={addressBookOpen}
+        onOpenChange={setAddressBookOpen}
+      />
       
       <SettingsModal
         open={settingsOpen}

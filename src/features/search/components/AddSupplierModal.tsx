@@ -13,6 +13,7 @@ import {
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { Textarea } from "@/shared/ui/textarea";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Label } from "@/shared/ui/label";
 
@@ -92,6 +93,8 @@ export function AddSupplierModal({
     useState("");
   const [website, setWebsite] =
     useState("");
+  const [note, setNote] =
+    useState("");
 
   const [
     saveToAddressBook,
@@ -125,6 +128,7 @@ export function AddSupplierModal({
     setFirstName("");
     setLastName("");
     setWebsite("");
+    setNote("");
 
     setSaveToAddressBook(false);
 
@@ -198,6 +202,7 @@ export function AddSupplierModal({
         contact.last_name,
         contact.email,
         contact.website,
+        contact.note,
       ]
         .filter(Boolean)
         .join(" ")
@@ -242,6 +247,12 @@ export function AddSupplierModal({
           saveToAddressBook &&
           website.trim()
             ? website.trim()
+            : undefined,
+
+        note:
+          saveToAddressBook &&
+          note.trim()
+            ? note.trim()
             : undefined,
 
         save_to_address_book:
@@ -469,6 +480,29 @@ export function AddSupplierModal({
                       disabled={submitting}
                     />
                   </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="manual-note">
+                      Примечание
+                    </Label>
+
+                    <Textarea
+                      id="manual-note"
+                      value={note}
+                      onChange={(event) =>
+                        setNote(event.target.value)
+                      }
+                      placeholder="Например: поставляет насосы и запасные части"
+                      maxLength={2000}
+                      rows={3}
+                      disabled={submitting}
+                      className="resize-none"
+                    />
+
+                    <div className="text-right text-xs text-muted-foreground">
+                      {note.length} / 2000
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -557,13 +591,13 @@ export function AddSupplierModal({
                           )
                         }
                         className={cn(
-                          "flex w-full items-center justify-between gap-4 border-b border-border px-4 py-3 text-left transition last:border-b-0",
+                          "flex w-full items-start justify-between gap-4 border-b border-border px-4 py-3 text-left transition last:border-b-0",
                           selected
                             ? "bg-primary/10 ring-1 ring-inset ring-primary"
                             : "hover:bg-muted/40"
                         )}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-foreground">
                             {contactName(contact)}
                           </div>
@@ -571,6 +605,25 @@ export function AddSupplierModal({
                           <div className="mt-1 truncate text-xs text-muted-foreground">
                             {contact.email}
                           </div>
+
+                          {contact.note?.trim() && (
+                            <div
+                              className="
+                                mt-2
+                                line-clamp-2
+                                rounded-md
+                                border border-border/70
+                                bg-background/35
+                                px-2.5 py-2
+                                text-xs
+                                leading-relaxed
+                                text-foreground/80
+                              "
+                              title={contact.note}
+                            >
+                              {contact.note}
+                            </div>
+                          )}
                         </div>
 
                         <div className="shrink-0 text-right">

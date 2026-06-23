@@ -2,10 +2,14 @@ import { apiFetch } from "./client";
 
 export type AddressBookContact = {
   id: number;
+
   first_name?: string | null;
   last_name?: string | null;
+
   website?: string | null;
   email: string;
+  note?: string | null;
+
   created_at: string;
   updated_at: string;
 };
@@ -13,8 +17,10 @@ export type AddressBookContact = {
 export type AddressBookContactInput = {
   first_name?: string | null;
   last_name?: string | null;
+
   website?: string | null;
   email: string;
+  note?: string | null;
 };
 
 export type AddressBookContactsResponse = {
@@ -42,6 +48,7 @@ function buildQuery(params: {
   }
 
   const query = search.toString();
+
   return query ? `?${query}` : "";
 }
 
@@ -58,18 +65,62 @@ export async function listAddressBookContacts(
     offset: params.offset ?? 0,
   });
 
-  return apiFetch<AddressBookContactsResponse>(`/address-book${query}`, {
-    method: "GET",
-  });
+  return apiFetch<AddressBookContactsResponse>(
+    `/address-book${query}`,
+    {
+      method: "GET",
+    }
+  );
+}
+
+/**
+ * Загружает всю адресную книгу.
+ * Backend отдаёт максимум 200 записей за запрос,
+ * поэтому страницы объединяются на клиенте.
+ */
+export async function listAllAddressBookContacts(): Promise<
+  AddressBookContact[]
+> {
+  const pageSize = 200;
+
+  let offset = 0;
+  let total = 0;
+
+  const all: AddressBookContact[] = [];
+
+  do {
+    const response = await listAddressBookContacts({
+      limit: pageSize,
+      offset,
+    });
+
+    const page = Array.isArray(response.items)
+      ? response.items
+      : [];
+
+    all.push(...page);
+
+    total = Number(response.total || 0);
+    offset += page.length;
+
+    if (page.length === 0) {
+      break;
+    }
+  } while (offset < total);
+
+  return all;
 }
 
 export async function createAddressBookContact(
   payload: AddressBookContactInput
 ): Promise<AddressBookContact> {
-  return apiFetch<AddressBookContact>("/address-book", {
-    method: "POST",
-    json: payload,
-  });
+  return apiFetch<AddressBookContact>(
+    "/address-book",
+    {
+      method: "POST",
+      json: payload,
+    }
+  );
 }
 
 export async function updateAddressBookContact(

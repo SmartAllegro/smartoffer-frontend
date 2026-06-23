@@ -40,6 +40,7 @@ export type AddSupplierPayload = {
   first_name?: string;
   last_name?: string;
   website?: string;
+  note?: string;
   address_book_contact_id?: number;
   save_to_address_book?: boolean;
 };
