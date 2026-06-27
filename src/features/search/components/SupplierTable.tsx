@@ -37,7 +37,8 @@ import {
   Ban,
   MessageSquareText,
   FileCheck2,
-  ExternalLink
+  ExternalLink,
+  BookUser,
 } from "lucide-react";
 import { cn } from "@/shared/utils/utils";
 
@@ -533,6 +534,16 @@ export function SupplierTable({
     return selectableSuppliers.every((s) => !!s.selected);
   }, [selectableSuppliers]);
 
+  const hasAddressBookMatches = useMemo(
+    () =>
+      suppliers.some(
+        (supplier) =>
+          typeof supplier.address_book_contact_id === "number" &&
+          supplier.address_book_contact_id > 0
+      ),
+    [suppliers]
+  );
+
   const handleToggleAll = () => {
     if (disabled || readOnly) return;
 
@@ -922,11 +933,30 @@ const uploadQuoteDisabled =
 
                       {analysisMode ? (
                         <div className="space-y-1 leading-snug">
-                          <div
-                            className="break-all text-[13px] text-muted-foreground"
-                            title={hasEmail ? supplier.contact : contactLabel}
-                          >
-                            {hasEmail ? supplier.contact : contactLabel}
+                          <div className="flex min-w-0 items-center gap-2">
+                            <div
+                              className="min-w-0 break-all text-[13px] text-muted-foreground"
+                              title={hasEmail ? supplier.contact : contactLabel}
+                            >
+                              {hasEmail ? supplier.contact : contactLabel}
+                            </div>
+
+                            {hasEmail && supplier.address_book_contact_id ? (
+                              <span
+                                className="
+                                  inline-flex h-5 w-5 shrink-0
+                                  items-center justify-center
+                                  rounded
+                                  border border-[#ffbf00]/35
+                                  bg-[#ffbf00]
+                                  text-[#2b2100]
+                                "
+                                title="Контакт из адресной книги"
+                                aria-label="Контакт из адресной книги"
+                              >
+                                <BookUser className="h-3.5 w-3.5" />
+                              </span>
+                            ) : null}
                           </div>
 
                           {href !== "#" ? (
@@ -949,15 +979,36 @@ const uploadQuoteDisabled =
                           )}
                         </div>
                       ) : hasEmail ? (
-                        <span
-                          className={cn(
-                            "block max-w-full text-muted-foreground",
-                            readOnly ? "truncate text-[13px]" : "break-all whitespace-normal"
-                          )}
-                          title={supplier.contact}
-                        >
-                          {supplier.contact}
-                        </span>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={cn(
+                              "min-w-0 max-w-full text-muted-foreground",
+                              readOnly
+                                ? "truncate text-[13px]"
+                                : "break-all whitespace-normal"
+                            )}
+                            title={supplier.contact}
+                          >
+                            {supplier.contact}
+                          </span>
+
+                          {supplier.address_book_contact_id ? (
+                            <span
+                              className="
+                                inline-flex h-5 w-5 shrink-0
+                                items-center justify-center
+                                rounded
+                                border border-[#ffbf00]/35
+                                bg-[#ffbf00]
+                                text-[#2b2100]
+                              "
+                              title="Контакт из адресной книги"
+                              aria-label="Контакт из адресной книги"
+                            >
+                              <BookUser className="h-3.5 w-3.5" />
+                            </span>
+                          ) : null}
+                        </div>
                       ) : (
                         <div className="flex flex-col gap-0.5">
                           <span className="truncate text-sm text-yellow-300" title={contactLabel}>
@@ -1360,18 +1411,43 @@ const uploadQuoteDisabled =
       </div>
 
       {!readOnly && canAddSupplier && (
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setAddModalOpen(true)}
-            disabled={disabled}
-            className="border-border text-foreground hover:bg-muted"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Добавить вручную
-          </Button>
-        </div>
-      )}
+  <div className="flex flex-wrap items-center gap-4">
+    <Button
+      variant="outline"
+      onClick={() => setAddModalOpen(true)}
+      disabled={disabled}
+      className="border-border text-foreground hover:bg-muted"
+    >
+      <Plus className="mr-2 h-4 w-4" />
+      Добавить вручную
+    </Button>
+
+    {hasAddressBookMatches ? (
+      <div
+        className="
+          inline-flex items-center gap-2
+          text-xs text-muted-foreground
+        "
+      >
+        <span
+          className="
+            inline-flex h-5 w-5 shrink-0
+            items-center justify-center
+            rounded
+            border border-[#ffbf00]/35
+            bg-[#ffbf00]
+            text-[#2b2100]
+          "
+          aria-hidden="true"
+        >
+          <BookUser className="h-3.5 w-3.5" />
+        </span>
+
+        <span>Контакт из адресной книги</span>
+      </div>
+    ) : null}
+  </div>
+)}
 
       <AddSupplierModal
         open={addModalOpen}

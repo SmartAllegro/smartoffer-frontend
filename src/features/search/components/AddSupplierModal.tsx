@@ -31,6 +31,12 @@ import {
   type AddressBookContact,
 } from "@/api/addressBook";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
+
 import type {
   AddSupplierPayload,
 } from "@/api/search";
@@ -111,9 +117,9 @@ export function AddSupplierModal({
   const [search, setSearch] = useState("");
 
   const [
-    selectedContactId,
-    setSelectedContactId,
-  ] = useState<number | null>(null);
+    selectedContactIds,
+    setSelectedContactIds,
+  ] = useState<number[]>([]);
 
   const [submitting, setSubmitting] =
     useState(false);
@@ -133,7 +139,7 @@ export function AddSupplierModal({
     setSaveToAddressBook(false);
 
     setSearch("");
-    setSelectedContactId(null);
+    setSelectedContactIds([]);
 
     setError(null);
     setSubmitting(false);
@@ -212,6 +218,49 @@ export function AddSupplierModal({
     });
   }, [contacts, search]);
 
+  const selectedCount =
+    selectedContactIds.length;
+
+  const visibleContactIds = useMemo(
+    () => filteredContacts.map((contact) => contact.id),
+    [filteredContacts]
+  );
+
+  const allVisibleSelected =
+    visibleContactIds.length > 0 &&
+    visibleContactIds.every((contactId) =>
+      selectedContactIds.includes(contactId)
+    );
+
+  const toggleContact = (contactId: number) => {
+    setSelectedContactIds((current) =>
+      current.includes(contactId)
+        ? current.filter((id) => id !== contactId)
+        : [...current, contactId]
+    );
+
+    setError(null);
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedContactIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter(
+          (id) => !visibleContactIds.includes(id)
+        );
+      }
+
+      return Array.from(
+        new Set([
+          ...current,
+          ...visibleContactIds,
+        ])
+      );
+    });
+
+    setError(null);
+  };
+
   const submitQuick = async () => {
     const normalizedEmail = email
       .trim()
@@ -268,9 +317,9 @@ export function AddSupplierModal({
   };
 
   const submitAddressBook = async () => {
-    if (!selectedContactId) {
+    if (selectedContactIds.length === 0) {
       setError(
-        "Выберите контакт из адресной книги"
+        "Выберите хотя бы один контакт из адресной книги"
       );
       return;
     }
@@ -278,15 +327,31 @@ export function AddSupplierModal({
     setSubmitting(true);
     setError(null);
 
+    let addedCount = 0;
+
     try {
-      await onConfirm({
-        address_book_contact_id:
-          selectedContactId,
-      });
+      /*
+       * Добавляем последовательно, а не через Promise.all.
+       * Это снижает нагрузку и гарантирует предсказуемое
+       * обновление списка поставщиков в React-state.
+       */
+      for (const contactId of selectedContactIds) {
+        await onConfirm({
+          address_book_contact_id: contactId,
+        });
+
+        addedCount += 1;
+      }
 
       changeOpen(false);
     } catch (submitError) {
-      setError(errorMessage(submitError));
+      setError(
+        addedCount > 0
+          ? `Добавлено контактов: ${addedCount}. ${errorMessage(
+              submitError
+            )}`
+          : errorMessage(submitError)
+      );
     } finally {
       setSubmitting(false);
     }
@@ -557,6 +622,27 @@ export function AddSupplierModal({
                 />
               </div>
 
+<div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background/30 px-3 py-2">
+  <label className="flex cursor-pointer items-center gap-3">
+    <Checkbox
+      checked={allVisibleSelected}
+      onCheckedChange={toggleAllVisible}
+      disabled={
+        submitting ||
+        filteredContacts.length === 0
+      }
+    />
+
+    <span className="text-sm font-medium text-foreground">
+      Выбрать все найденные
+    </span>
+  </label>
+
+  <span className="text-xs text-muted-foreground">
+    Выбрано: {selectedCount}
+  </span>
+</div>
+
               <div className="max-h-[360px] overflow-y-auto rounded-lg border border-border">
                 {contactsLoading ? (
                   <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
@@ -576,80 +662,124 @@ export function AddSupplierModal({
                     </div>
                   </div>
                 ) : (
-                  filteredContacts.map((contact) => {
-                    const selected =
-                      selectedContactId ===
-                      contact.id;
+  filteredContacts.map((contact) => {
+    const selected =
+      selectedContactIds.includes(contact.id);
 
-                    return (
-                      <button
-                        key={contact.id}
-                        type="button"
-                        onClick={() =>
-                          setSelectedContactId(
-                            contact.id
-                          )
-                        }
-                        className={cn(
-                          "flex w-full items-start justify-between gap-4 border-b border-border px-4 py-3 text-left transition last:border-b-0",
-                          selected
-                            ? "bg-primary/10 ring-1 ring-inset ring-primary"
-                            : "hover:bg-muted/40"
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {contactName(contact)}
-                          </div>
+    return (
+      <div
+        key={contact.id}
+        role="button"
+        tabIndex={0}
+        onClick={() =>
+          toggleContact(contact.id)
+        }
+        onKeyDown={(event) => {
+          if (
+            event.key === "Enter" ||
+            event.key === " "
+          ) {
+            event.preventDefault();
+            toggleContact(contact.id);
+          }
+        }}
+        className={cn(
+          "flex w-full cursor-pointer items-start gap-3 border-b border-border px-4 py-3 text-left transition last:border-b-0",
+          selected
+            ? "bg-primary/10 ring-1 ring-inset ring-primary"
+            : "hover:bg-muted/40"
+        )}
+      >
+        <Checkbox
+          checked={selected}
+          onCheckedChange={() =>
+            toggleContact(contact.id)
+          }
+          onClick={(event) =>
+            event.stopPropagation()
+          }
+          disabled={submitting}
+          className="mt-1 shrink-0"
+          aria-label={`Выбрать ${contactName(
+            contact
+          )}`}
+        />
 
-                          <div className="mt-1 truncate text-xs text-muted-foreground">
-                            {contact.email}
-                          </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-foreground">
+            {contactName(contact)}
+          </div>
 
-                          {contact.note?.trim() && (
-                            <div
-                              className="
-                                mt-2
-                                line-clamp-2
-                                rounded-md
-                                border border-border/70
-                                bg-background/35
-                                px-2.5 py-2
-                                text-xs
-                                leading-relaxed
-                                text-foreground/80
-                              "
-                              title={contact.note}
-                            >
-                              {contact.note}
-                            </div>
-                          )}
-                        </div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            {contact.email}
+          </div>        
+        </div>
 
-                        <div className="shrink-0 text-right">
-                          <div className="max-w-[180px] truncate text-xs text-muted-foreground">
-                            {websiteLabel(
-                              contact.website
-                            ) || "Сайт не указан"}
-                          </div>
+        <div className="flex w-[300px] shrink-0 flex-col gap-2">
+  <div className="w-full text-right">
+  <div className="truncate text-xs text-muted-foreground">
+    {websiteLabel(contact.website) || "Сайт не указан"}
+  </div>
+</div>
 
-                          <div
-                            className={cn(
-                              "mt-1 text-xs font-medium",
-                              selected
-                                ? "text-primary"
-                                : "text-transparent"
-                            )}
-                          >
-                            Выбран
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+  {contact.note?.trim() ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="
+            w-full
+            cursor-help
+            truncate
+            rounded-md
+            border border-border/70
+            bg-background/35
+            px-2.5 py-2
+            text-left
+            text-xs
+            text-foreground/80
+          "
+        >
+          {contact.note}
+        </div>
+      </TooltipTrigger>
 
+      <TooltipContent
+        side="top"
+        align="end"
+        className="
+          max-w-[420px]
+          whitespace-pre-wrap
+          break-words
+          text-sm
+          leading-relaxed
+        "
+      >
+        {contact.note}
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    <div
+      className="
+        w-full
+        truncate
+        rounded-md
+        border border-border/50
+        bg-background/20
+        px-2.5 py-2
+        text-left
+        text-xs
+        text-muted-foreground/60
+      "
+    >
+      Нет примечания
+    </div>
+  )}
+</div>
+      </div>
+    );
+  })
+)}
+</div>
               {error && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                   {error}
@@ -675,14 +805,16 @@ export function AddSupplierModal({
                   }
                   disabled={
                     submitting ||
-                    !selectedContactId
+                    selectedCount === 0
                   }
                 >
                   {submitting && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
 
-                  Добавить выбранного
+                  {selectedCount === 0
+                    ? "Добавить выбранных"
+                    : `Добавить выбранных: ${selectedCount}`}
                 </Button>
               </div>
             </div>
