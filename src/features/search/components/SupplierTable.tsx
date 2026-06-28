@@ -4,6 +4,11 @@ import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/shared/ui/popover";
+import {
   Table,
   TableBody,
   TableCell,
@@ -379,11 +384,27 @@ const REPLY_STATUS_OPTIONS: Array<{
 }> = [
   { value: "no_reply", label: "Нет ответа", shortLabel: "Нет ответа" },
   { value: "in_progress", label: "В работе", shortLabel: "В работе" },
-  { value: "quote_received", label: "КП получено", shortLabel: "КП" },
+  { value: "quote_received", label: "КП получено", shortLabel: "КП получено" },
   { value: "clarification_requested", label: "Нужны уточнения", shortLabel: "Уточнение" },
   { value: "declined", label: "Отказ", shortLabel: "Отказ" },
   { value: "manual_review", label: "Проверить вручную", shortLabel: "Проверить" },
 ];
+
+const REPLY_STATUS_TOOLBAR_OPTIONS = REPLY_STATUS_OPTIONS.filter(
+  (option) =>
+    option.value === "in_progress" ||
+    option.value === "quote_received" ||
+    option.value === "clarification_requested" ||
+    option.value === "declined"
+);
+
+function replyStatusShortLabel(status?: string | null): string {
+  const found = REPLY_STATUS_OPTIONS.find(
+    (option) => option.value === status
+  );
+
+  return found?.shortLabel || "Нет ответа";
+}
 
 function replyStatusLabel(status?: string | null): string {
   const found = REPLY_STATUS_OPTIONS.find((x) => x.value === status);
@@ -507,6 +528,12 @@ export function SupplierTable({
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
     useState<Supplier | null>(null);
+
+  const [
+    openReplyStatusSupplierId,
+    setOpenReplyStatusSupplierId,
+  ] = useState<string | null>(null);
+
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogSupplier, setDialogSupplier] = useState<Supplier | null>(null);
@@ -520,6 +547,28 @@ export function SupplierTable({
   const handleShowError = (supplier: Supplier) => {
     setSelectedErrorSupplier(supplier);
     setErrorModalOpen(true);
+  };
+
+  const handleSelectReplyStatus = (
+    supplier: Supplier,
+    status: SupplierReplyStatus
+  ) => {
+    const backendId = supplier.backend_result_id;
+
+    if (
+      !backendId ||
+      typeof onSetReplyStatus !== "function"
+    ) {
+      return;
+    }
+
+    setOpenReplyStatusSupplierId(null);
+
+    void onSetReplyStatus(
+      supplier.id,
+      backendId,
+      status
+    );
   };
 
   // ===== toggle all checkboxes (header button) =====
@@ -1136,39 +1185,164 @@ const uploadQuoteDisabled =
 )}
 
   <TableCell className="px-2 text-center align-middle">
-  <SupplierStatusBadge
-                      status={supplier.status}
-                      onShowError={
-                        supplier.status === "error"
-                          ? () => handleShowError(supplier)
-                          : undefined
-                      }
+  <div className="flex flex-col items-center justify-center gap-1.5">
+    <SupplierStatusBadge
+      status={supplier.status}
+      onShowError={
+        supplier.status === "error"
+          ? () => handleShowError(supplier)
+          : undefined
+      }
+    />
+
+    {showQuoteColumn && (
+      <Popover
+        open={
+          openReplyStatusSupplierId === supplier.id
+        }
+        onOpenChange={(open) => {
+          setOpenReplyStatusSupplierId(
+            open ? supplier.id : null
+          );
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={replyStatusDisabled}
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+            className={cn(
+              `
+                inline-flex h-6 max-w-full
+                items-center justify-center gap-1.5
+                rounded-md border px-2
+                text-[11px] font-semibold leading-none
+                transition
+              `,
+              replyStatusBadgeClass(
+                supplier.reply_status
+              ),
+              !replyStatusDisabled &&
+                "hover:brightness-125",
+              replyStatusDisabled &&
+                "cursor-not-allowed opacity-50"
+            )}
+            title={`${replyStatusLabel(
+              supplier.reply_status
+            )}. Нажмите, чтобы изменить статус`}
+            aria-label={`Текущий статус: ${replyStatusLabel(
+              supplier.reply_status
+            )}`}
+          >
+            <ReplyStatusIcon
+              status={supplier.reply_status}
+            />
+
+            <span className="truncate">
+              {replyStatusShortLabel(
+                supplier.reply_status
+              )}
+            </span>
+
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+          </button>
+        </PopoverTrigger>
+
+        <PopoverContent
+          align="center"
+          side="bottom"
+          sideOffset={6}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+          className="
+            z-50 w-auto
+            rounded-lg
+            border border-[#2f3a4d]
+            bg-[#101722]
+            p-2
+            text-white
+            shadow-[0_16px_50px_rgba(0,0,0,0.60)]
+          "
+        >
+          <div className="flex items-center gap-1.5">
+            {REPLY_STATUS_TOOLBAR_OPTIONS.map(
+              (option) => {
+                const selected =
+                  supplier.reply_status ===
+                  option.value;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={
+                      replyStatusDisabled ||
+                      selected
+                    }
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+
+                      handleSelectReplyStatus(
+                        supplier,
+                        option.value
+                      );
+                    }}
+                    className={cn(
+                      quoteActionButtonBase,
+                      replyStatusBadgeClass(
+                        option.value
+                      ),
+                      `
+                        gap-1.5 whitespace-nowrap
+                        hover:brightness-125
+                      `,
+                      selected &&
+                        "ring-1 ring-white/35",
+                      (replyStatusDisabled ||
+                        selected) &&
+                        "cursor-default"
+                    )}
+                    title={option.label}
+                  >
+                    <ReplyStatusIcon
+                      status={option.value}
                     />
-                  </TableCell>
+
+                    <span>
+                      {option.shortLabel}
+                    </span>
+                  </button>
+                );
+              }
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    )}
+  </div>
+</TableCell>
 
 {showQuoteColumn && (
   <TableCell className="min-w-0 px-2 py-2 align-middle">
     <div className="flex min-w-0 flex-col gap-1.5">
-      {/* 1. Верхняя строка: текущий статус + подпись */}
-      <div className="flex min-w-0 items-center gap-2">
-        <div
-          className={cn(
-            "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold leading-none",
-            replyStatusBadgeClass(supplier.reply_status)
-          )}
-        >
-          <ReplyStatusIcon status={supplier.reply_status} />
-          <span>{replyStatusLabel(supplier.reply_status)}</span>
-        </div>
-
+      {/* 1. Верхняя строка: информация о КП */}
+      <div className="flex min-w-0 items-center">
         <div
           className={cn(
             "min-w-0 truncate text-[11px]",
-            supplier.quote_received || supplier.reply_status === "quote_received"
+            supplier.quote_received ||
+              supplier.reply_status ===
+                "quote_received"
               ? "text-emerald-300"
-              : supplier.reply_status === "in_progress"
+              : supplier.reply_status ===
+                  "in_progress"
                 ? "text-[#ffbf00]"
-                : supplier.reply_status === "declined"
+                : supplier.reply_status ===
+                    "declined"
                   ? "text-red-300"
                   : "text-muted-foreground"
           )}
@@ -1177,93 +1351,7 @@ const uploadQuoteDisabled =
           {quoteStatusText(supplier)}
         </div>
       </div>
-
-      {/* 2. Средняя строка: ручные статусы */}
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          disabled={replyStatusDisabled}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (!backendId || typeof onSetReplyStatus !== "function") return;
-            void onSetReplyStatus(supplier.id, backendId, "in_progress");
-          }}
-          className={cn(
-            quoteActionButtonBase,
-            "border-[#ffbf00]/30 bg-[#ffbf00]/10 text-[#ffbf00] hover:bg-[#ffbf00] hover:text-[#2b2100]",
-            replyStatusDisabled && "cursor-not-allowed opacity-50"
-          )}
-          title="Поставщик сообщил, что запрос в работе"
-        >
-          В работе
-        </button>
-
-        <button
-          type="button"
-          disabled={replyStatusDisabled}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (!backendId || typeof onSetReplyStatus !== "function") return;
-            void onSetReplyStatus(supplier.id, backendId, "quote_received");
-          }}
-          className={cn(
-            quoteActionButtonBase,
-            "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500 hover:text-white",
-            replyStatusDisabled && "cursor-not-allowed opacity-50"
-          )}
-          title="Поставщик прислал КП"
-        >
-          КП 
-        </button>
-
-        <button
-          type="button"
-          disabled={replyStatusDisabled}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (!backendId || typeof onSetReplyStatus !== "function") return;
-            void onSetReplyStatus(
-              supplier.id,
-              backendId,
-              "clarification_requested"
-            );
-          }}
-          className={cn(
-            quoteActionButtonBase,
-            "border-blue-500/30 bg-blue-500/10 text-blue-300 hover:bg-blue-500 hover:text-white",
-            replyStatusDisabled && "cursor-not-allowed opacity-50"
-          )}
-          title="Поставщик запросил уточнение"
-        >
-          Уточнение
-        </button>
-
-        <button
-          type="button"
-          disabled={replyStatusDisabled}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
-            if (!backendId || typeof onSetReplyStatus !== "function") return;
-            void onSetReplyStatus(supplier.id, backendId, "declined");
-          }}
-          className={cn(
-            quoteActionButtonBase,
-            "border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500 hover:text-white",
-            replyStatusDisabled && "cursor-not-allowed opacity-50"
-          )}
-          title="Поставщик отказал или нет возможности поставить"
-        >
-          Отказ
-        </button>
-      </div>
+      
 
       {/* 3. Нижняя строка: фиксированная отметка КП + действия */}
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5">
