@@ -22,6 +22,47 @@ type Props = {
   onAuthed: (me: UserMe) => void;
 };
 
+const BLOCKED_REGISTRATION_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "google.com",
+
+  "outlook.com",
+  "outlook.ru",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+
+  "icloud.com",
+  "me.com",
+  "mac.com",
+
+  "yahoo.com",
+  "yahoo.co.uk",
+  "yahoo.de",
+
+  "proton.me",
+  "protonmail.com",
+
+  "zoho.com",
+  "aol.com",
+
+  "gmx.com",
+  "gmx.de",
+
+  "qq.com",
+]);
+
+function getEmailDomain(email: string): string {
+  const value = email.trim().toLowerCase();
+
+  if (!value.includes("@")) {
+    return "";
+  }
+
+  return value.split("@").pop()?.trim().replace(/\.$/, "") || "";
+}
+
 export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
   const { toast } = useToast();
 
@@ -41,6 +82,12 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
+  const regEmailDomain = getEmailDomain(regEmail);
+
+  const regEmailBlocked =
+    regEmailDomain.length > 0 &&
+    BLOCKED_REGISTRATION_EMAIL_DOMAINS.has(regEmailDomain);
+
   const canLogin = useMemo(
     () => loginEmail.trim().length > 0 && loginPassword.trim().length > 0,
     [loginEmail, loginPassword]
@@ -53,11 +100,20 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
       firstName.trim().length > 0 &&
       lastName.trim().length > 0 &&
       regEmail.trim().length > 0 &&
+      !regEmailBlocked &&
       regPassword.trim().length >= 8 &&
       privacyAccepted &&
       termsAccepted
     );
-  }, [firstName, lastName, regEmail, regPassword, privacyAccepted, termsAccepted]);
+  }, [
+    firstName,
+    lastName,
+    regEmail,
+    regPassword,
+    privacyAccepted,
+    termsAccepted,
+    regEmailBlocked,
+  ]);
 
   async function doFetchMeAndClose() {
     const me = await fetchMe();
@@ -115,6 +171,17 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
   }
 
   async function handleRegister() {
+    if (regEmailBlocked) {
+      toast({
+        title: "Регистрация недоступна",
+        description:
+          "Используйте Mail.ru, Яндекс, Rambler или корпоративный email.",
+        variant: "destructive",
+      });
+
+      return;
+    }
+
     if (!canRegister) return;
 
     setLoading(true);
@@ -270,6 +337,12 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
               onChange={(e) => setRegEmail(e.target.value)}
               autoComplete="email"
             />
+            {regEmailBlocked && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm leading-relaxed text-destructive">
+                Регистрация через зарубежные почтовые сервисы недоступна. Используйте Mail.ru,
+                Яндекс, Rambler или корпоративный email.
+              </div>
+            )}
 
             <Input
               placeholder="Пароль (минимум 8 символов)"
