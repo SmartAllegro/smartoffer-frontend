@@ -1,3 +1,4 @@
+import { safeWebsiteUrl } from "@/shared/utils/browserSecurity";
 import * as React from "react";
 
 import {
@@ -118,15 +119,7 @@ function websiteLabel(value?: string | null): string {
 }
 
 function websiteHref(value?: string | null): string {
-  const clean = (value || "").trim();
-
-  if (!clean) return "#";
-
-  if (/^https?:\/\//i.test(clean)) {
-    return clean;
-  }
-
-  return `https://${clean}`;
+  return safeWebsiteUrl(value) || "#";
 }
 
 function validEmail(value: string): boolean {
@@ -725,7 +718,7 @@ export function AddressBookModal({
                             <a
                               href={href}
                               target="_blank"
-                              rel="noreferrer"
+                              rel="noopener noreferrer"
                               className="inline-flex max-w-full items-center gap-1.5 text-sm text-[#ffbf00] hover:underline"
                             >
                               <span className="truncate">

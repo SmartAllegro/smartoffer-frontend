@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, authenticatedFetch } from "./client";
 
 function buildQuery(params: Record<string, string | number | undefined | null>) {
   const search = new URLSearchParams();
@@ -152,14 +152,6 @@ export async function getChatUnreadCount(): Promise<ChatUnreadCountResponse> {
   });
 }
 
-function getAuthToken(): string | null {
-  try {
-    return localStorage.getItem("SMARTOFFER_AUTH_TOKEN");
-  } catch {
-    return null;
-  }
-}
-
 function filenameFromContentDisposition(value: string | null): string | null {
   if (!value) return null;
 
@@ -200,25 +192,7 @@ export async function downloadChatAttachment(attachmentId: number): Promise<{
   filename: string;
   contentType: string;
 }> {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL;
-
-  if (!baseUrl) {
-    throw new Error(
-      "VITE_API_BASE_URL is not set. Create .env.local with VITE_API_BASE_URL=http://127.0.0.1:10000"
-    );
-  }
-
-  const headers: HeadersInit = {};
-  const token = getAuthToken();
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${baseUrl}/chat/attachments/${attachmentId}/download`, {
-    method: "GET",
-    headers,
-  });
+  const response = await authenticatedFetch(`/chat/attachments/${attachmentId}/download`, { method: "GET" });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");

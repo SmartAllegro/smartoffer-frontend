@@ -42,7 +42,7 @@ export function useRequestHistory() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listHistory(100, 0);
+      const res = await listHistory({ limit: 100, offset: 0 });
       const items = (res.items ?? []).map(mapItemToRFQRequest);
       // уже отсортировано сервером? на всякий случай сортируем
       items.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());

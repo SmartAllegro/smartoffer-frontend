@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { browserSecurityPolicy } from "./build/security-policy";
 
 export default defineConfig({
   // Для кастомного домена (smartoffer.pro) нужно "/"
@@ -8,7 +9,7 @@ export default defineConfig({
   // Мы делаем авто-режим: если есть VITE_PAGES_BASE, используем его, иначе "/"
   base: process.env.VITE_PAGES_BASE || "/",
 
-  plugins: [react()],
+  plugins: [react(), browserSecurityPolicy()],
 
   server: {
     host: "localhost",

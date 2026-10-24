@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/api/quoteAnalysis.ts",
+    "src/features/search/quoteAnalysisFlow.ts",
+    "src/features/search/components/QuoteAnalysisPanel.tsx",
+    "src/api/quoteComparison.ts",
+    "src/api/quoteBenefitIndex.ts",
+    "src/features/search/quoteComparisonFlow.ts",
+    "src/features/search/quoteBenefitIndexFlow.ts",
+    "src/features/search/components/QuoteComparisonPanel.tsx",
+    "src/features/search/components/SupplierTable.tsx",
+    "src/pages/RequestDetailPage.tsx"
+  ]
+}

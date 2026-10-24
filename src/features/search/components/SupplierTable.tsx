@@ -1,8 +1,11 @@
-import { useMemo, useState } from "react";
+import { safeWebsiteUrl } from "@/shared/utils/browserSecurity";
+import { useMemo, useRef, useState } from "react";
 import type { Supplier, SupplierReplyStatus } from "@/shared/types/rfq";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
+import { Textarea } from "@/shared/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import {
   Popover,
   PopoverContent,
@@ -44,17 +47,25 @@ import {
   FileCheck2,
   ExternalLink,
   BookUser,
+  Reply,
+  Send,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/shared/utils/utils";
+import { useToast } from "@/shared/hooks/use-toast";
+import type { BenefitIndexItem } from "@/api/quoteBenefitIndex";
+import { formatBenefitScore } from "../quoteFormat";
 
 import {
   downloadQuoteFile,
   getResultReplies,
+  sendSupplierReply,
   type ReplyAttachmentItem,
   type SupplierReplyItem,
 } from "@/api/history";
 
 import { getTeamResultReplies } from "@/api/team";
+import { listEmailSignatures, type EmailSignature } from "@/api/emailSignatures";
 
 import {
   AddSupplierModal,
@@ -76,6 +87,7 @@ interface SupplierTableProps {
   disabled?: boolean;
   readOnly?: boolean;
   requestAnalysisMode?: boolean;
+  benefitIndexItems?: BenefitIndexItem[];
   historyScope?: "personal" | "team";
   hideSupplierNameColumn?: boolean;
 
@@ -132,31 +144,7 @@ function safeHostLabel(rawUrl?: string): string {
 }
 
 function safeHref(rawUrl?: string): string {
-  const u = (rawUrl ?? "").trim();
-  if (!u) return "#";
-  return u;
-}
-
-function supplierInnPlaceholder(supplier: Supplier): {
-  inn: string;
-  score: string;
-  risk: string;
-} {
-  const key = `${supplier.contact || ""}${supplier.source_url || ""}`;
-
-  if (!key.trim()) {
-    return {
-      inn: "—",
-      score: "Индекс риска: —/100",
-      risk: "Ожидает данных",
-    };
-  }
-
-  return {
-    inn: "Будет найден по API",
-    score: "Индекс риска: —/100",
-    risk: "API не подключен",
-  };
+  return safeWebsiteUrl(rawUrl) || "#";
 }
 
 function isValidEmail(email: string): boolean {
@@ -182,9 +170,15 @@ function formatDialogDate(value?: string | null): string {
 
 function replyDirectionLabel(reply: SupplierReplyItem): string {
   const direction = String(reply.direction || "").toLowerCase();
+  const source = String(reply.source || "").toLowerCase();
 
-  if (direction === "user") return "Вы написали поставщику";
-  if (direction === "system") return "Системное событие";
+  if (source === "system" || direction === "system") {
+    return "Системное событие";
+  }
+
+  if (direction === "user") {
+    return "Вы написали поставщику";
+  }
 
   if (reply.message_type === "quote" || reply.status === "quote_received") {
     return "Поставщик прислал КП";
@@ -207,13 +201,14 @@ function replyDirectionLabel(reply: SupplierReplyItem): string {
 
 function replyCardClass(reply: SupplierReplyItem): string {
   const direction = String(reply.direction || "").toLowerCase();
+  const source = String(reply.source || "").toLowerCase();
+
+  if (source === "system" || direction === "system") {
+    return "border-muted-foreground/25 bg-muted/20";
+  }
 
   if (direction === "user") {
     return "border-blue-500/30 bg-blue-500/5";
-  }
-
-  if (direction === "system") {
-    return "border-muted-foreground/25 bg-muted/20";
   }
 
   if (reply.message_type === "quote" || reply.status === "quote_received") {
@@ -228,7 +223,7 @@ function replyCardClass(reply: SupplierReplyItem): string {
     return "border-red-500/30 bg-red-500/5";
   }
 
-  return "border-border bg-card/40";
+  return "border-emerald-500/30 bg-emerald-500/5";
 }
 
 function fileSizeLabel(sizeBytes?: number | null): string {
@@ -257,6 +252,18 @@ function hasSupplierDialog(supplier: Supplier): boolean {
 
 function supplierDialogBadgeText(count: number): string {
   return count > 99 ? "99+" : String(count);
+}
+
+function hasQuoteEvidence(supplier: Supplier): boolean {
+  return Boolean(
+    supplier.quote_received ||
+      supplier.reply_status === "quote_received" ||
+      Number(supplier.quote_file_count || 0) > 0 ||
+      supplier.quote_source === "attachment" ||
+      supplier.quote_source === "text" ||
+      supplier.quote_source === "link" ||
+      supplier.latest_reply?.is_quote
+  );
 }
 
 function SupplierStatusBadge({
@@ -517,6 +524,7 @@ export function SupplierTable({
   disabled = false,
   readOnly = false,
   requestAnalysisMode = false,
+  benefitIndexItems,
   hideSupplierNameColumn = false,
   onToggleQuote,
   onSetReplyStatus,
@@ -525,6 +533,7 @@ export function SupplierTable({
   onOpenQuoteFile,
   onMarkSupplierDialogRead,
 }: SupplierTableProps) {
+  const { toast } = useToast();
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [selectedErrorSupplier, setSelectedErrorSupplier] =
     useState<Supplier | null>(null);
@@ -540,9 +549,27 @@ export function SupplierTable({
   const [dialogReplies, setDialogReplies] = useState<SupplierReplyItem[]>([]);
   const [dialogLoading, setDialogLoading] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [replyComposerOpen, setReplyComposerOpen] = useState(false);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replySending, setReplySending] = useState(false);
+  const replySendingRef = useRef(false);
+  const [replySignatures, setReplySignatures] = useState<EmailSignature[]>([]);
+  const [replySignaturesLoading, setReplySignaturesLoading] = useState(false);
+  const [replySignaturesLoaded, setReplySignaturesLoaded] = useState(false);
+  const replySignaturesLoadingRef = useRef(false);
+  const [replySignatureId, setReplySignatureId] = useState<number | null>(null);
+  const replyTarget = dialogReplies.find(
+    (reply) =>
+      String(reply.direction || "").toLowerCase() === "supplier" &&
+      Boolean(reply.from_email?.trim())
+  );
+  const replyRecipientEmail = replyTarget?.from_email?.trim() || "";
 
   const [innDrafts, setInnDrafts] = useState<Record<string, string>>({});
   const [innSavingIds, setInnSavingIds] = useState<Record<string, boolean>>({});
+  const benefitByResultId = useMemo(() => new Map(
+    (benefitIndexItems || []).map(item => [item.result_id, item])
+  ), [benefitIndexItems]);
 
   const handleShowError = (supplier: Supplier) => {
     setSelectedErrorSupplier(supplier);
@@ -656,9 +683,77 @@ export function SupplierTable({
   const quoteActionButtonBase =
   "inline-flex h-6 items-center justify-center rounded-md border px-2 text-[10px] font-semibold leading-none transition";
 
+function handleStartReply() {
+  if (historyScope !== "personal" || !replyRecipientEmail) return;
+  setReplySignatureId(null);
+  setReplyComposerOpen(true);
+  if (!replySignaturesLoaded && !replySignaturesLoadingRef.current) {
+    replySignaturesLoadingRef.current = true;
+    setReplySignaturesLoading(true);
+    void listEmailSignatures()
+      .then((items) => setReplySignatures(items))
+      .catch(() => {
+        setReplySignatures([]);
+        toast({
+          title: "Не удалось загрузить список подписей",
+          description: "Будет использована подпись исходного запроса.",
+        });
+      })
+      .finally(() => {
+        setReplySignaturesLoaded(true);
+        setReplySignaturesLoading(false);
+        replySignaturesLoadingRef.current = false;
+      });
+  }
+}
+
+async function handleSendReply() {
+  const resultId = dialogSupplier?.backend_result_id;
+  const body = replyDraft.trim();
+  if (!resultId || !body || historyScope !== "personal" || !replyRecipientEmail) return;
+  if (replySending) return;
+  if (replySendingRef.current) return;
+
+  replySendingRef.current = true;
+  setReplySending(true);
+  setDialogError(null);
+  try {
+    const response = await sendSupplierReply(resultId, body, replySignatureId);
+    if (!response?.ok || !response.reply || typeof response.reply.id !== "number") {
+      throw new Error("Не удалось подтвердить отправку ответа поставщику");
+    }
+
+    setDialogReplies((prev) => [
+      response.reply,
+      ...prev.filter((item) => item.id !== response.reply.id),
+    ]);
+    setReplyDraft("");
+    setReplySignatureId(null);
+    setReplyComposerOpen(false);
+    toast({
+      title: "Ответ отправлен",
+      description: response.sent_copy_saved
+        ? undefined
+        : response.warning ||
+          "Письмо отправлено поставщику, но копию не удалось сохранить в папке «Отправленные».",
+    });
+  } catch (e) {
+    setDialogError(
+      e instanceof Error ? e.message : "Не удалось отправить ответ поставщику"
+    );
+  } finally {
+    replySendingRef.current = false;
+    setReplySending(false);
+  }
+}
+
 async function openSupplierDialog(supplier: Supplier) {
   if (!supplier.backend_result_id) return;
 
+  setReplyComposerOpen(false);
+  setReplyDraft("");
+  setReplySignatureId(null);
+  setReplySending(false);
   setDialogSupplier(supplier);
   setDialogOpen(true);
   setDialogLoading(true);
@@ -824,7 +919,7 @@ async function openDialogAttachment(file: ReplyAttachmentItem) {
 
 {analysisMode ? (
   <TableHead className="text-left text-muted-foreground font-normal">
-    ИНН / Индекс риска
+    ИНН / Индекс выгоды
   </TableHead>
 ) : (
   <TableHead className="text-center text-muted-foreground font-normal">
@@ -853,6 +948,7 @@ async function openDialogAttachment(file: ReplyAttachmentItem) {
               const hasEmail = Boolean(supplier.contact?.trim());
               const contactLabel = supplier.contact_label || (hasEmail ? supplier.contact : "Контакт через сайт");
               const backendId = supplier.backend_result_id;
+              const benefit = backendId ? benefitByResultId.get(backendId) : undefined;
               const quoteChecked = !!supplier.quote_received;
               const quoteFileCount = Number(supplier.quote_file_count || 0);
               const replyDialogCount = supplierDialogCount(supplier);
@@ -1140,7 +1236,7 @@ const uploadQuoteDisabled =
             </div>
           ) : savedInn ? (
             <div className="text-[11px] text-emerald-300">
-              ИНН сохранён вручную
+              ИНН сохранён
             </div>
           ) : (
             <div className="text-[11px] text-muted-foreground">
@@ -1148,9 +1244,19 @@ const uploadQuoteDisabled =
             </div>
           )}
 
-          <div className="inline-flex w-fit items-center rounded-md border border-[#ffbf00]/25 bg-[#ffbf00]/10 px-2 py-0.5 text-[11px] font-semibold text-[#ffbf00]">
-            Индекс риска: —/100
-          </div>
+          {hasQuoteEvidence(supplier) && (
+            <span
+              className="inline-block max-w-full break-words rounded-md border border-[#ffbf00]/35 bg-[#ffbf00]/10 px-2 py-0.5 text-[11px] font-medium leading-tight text-[#ffdf72]"
+              title={benefit?.total_score === null ? "Для расчёта индекса требуются курсы валют" : undefined}
+            >
+              Индекс выгоды: {benefit &&
+              (benefit.status === "ready" || benefit.status === "preliminary") &&
+              benefit.total_score !== null
+                ? formatBenefitScore(benefit.total_score)
+                : "—"}/10
+            </span>
+          )}
+
         </div>
       );
     })()}
@@ -1548,8 +1654,17 @@ const uploadQuoteDisabled =
         onOpenChange={setErrorModalOpen}
         supplier={selectedErrorSupplier}
       />
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col bg-card border-border text-foreground [&_[data-radix-dialog-close]]:hidden">
+      <Dialog open={dialogOpen} onOpenChange={(next) => {
+        setDialogOpen(next);
+        if (!next) {
+          setReplyComposerOpen(false);
+          setReplySignatureId(null);
+        }
+      }}>
+        <DialogContent
+  onOpenAutoFocus={(event) => event.preventDefault()}
+  className="max-w-3xl max-h-[85vh] flex flex-col bg-card border-border text-foreground"
+>
           <DialogHeader>
             <DialogTitle className="text-xl">Диалог с поставщиком</DialogTitle>
           </DialogHeader>
@@ -1654,7 +1769,7 @@ const uploadQuoteDisabled =
                                 {file.original_filename || `Файл ${file.id}`}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {file.detected_type || "file"} · {fileSizeLabel(file.size_bytes)}
+                                {file.detected_type === "quote" ? "КП" : file.detected_type === "technical_document" ? "Технический документ" : "Документ"} · {fileSizeLabel(file.size_bytes)}
                               </div>
                             </div>
 
@@ -1679,13 +1794,114 @@ const uploadQuoteDisabled =
           </div>
 
           <div className="pt-4 border-t border-border">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => setDialogOpen(false)}
-            >
-              Закрыть
-            </Button>
+            {historyScope === "team" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => setDialogOpen(false)}
+              >
+                Закрыть
+              </Button>
+            ) : !replyRecipientEmail ? (
+              !dialogLoading && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Ответить можно после получения письма от поставщика.
+                </p>
+              )
+            ) : replyComposerOpen ? (
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="supplier-reply-draft" className="text-sm font-medium">
+                    Ответ поставщику
+                  </label>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Кому: {replyRecipientEmail || "—"}
+                  </div>
+                </div>
+                <Textarea
+                  id="supplier-reply-draft"
+                  value={replyDraft}
+                  onChange={(event) => setReplyDraft(event.target.value)}
+                  placeholder="Введите сообщение поставщику..."
+                  maxLength={5000}
+                  disabled={replySending}
+                  className="min-h-[120px] resize-y border-border bg-background/40 text-foreground"
+                />
+                <div className="text-right text-xs text-muted-foreground">
+                  {replyDraft.length} / 5000
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="reply-signature" className="text-sm font-medium">Подпись</label>
+                  <Select
+                    value={replySignatureId === null ? "inherit" : String(replySignatureId)}
+                    onValueChange={(value) => setReplySignatureId(value === "inherit" ? null : Number(value))}
+                    disabled={replySending}
+                  >
+                    <SelectTrigger id="reply-signature" className="border-border bg-background/40">
+                      <SelectValue placeholder="Как в исходном запросе" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="inherit">Как в исходном запросе</SelectItem>
+                      {replySignatures.map((signature) => (
+                        <SelectItem key={signature.id} value={String(signature.id)}>{signature.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {replySignaturesLoading && <p className="text-xs text-muted-foreground">Загружаем подписи…</p>}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={replySending}
+                    onClick={() => {
+                      setReplyComposerOpen(false);
+                      setReplyDraft("");
+                      setReplySignatureId(null);
+                    }}
+                  >
+                    Отмена
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-sky-500/25 bg-sky-500/10 text-sky-200 hover:border-sky-400/60 hover:bg-sky-500 hover:text-white"
+                    onClick={handleSendReply}
+                    disabled={replySending || replyDraft.trim().length === 0}
+                  >
+                    {replySending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" />
+                    )}
+                    {replySending ? "Отправляем..." : "Отправить"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className="
+                  w-full
+                  border-sky-500/25
+                  bg-sky-500/10
+                  text-sky-200
+                  transition-colors
+                  hover:border-sky-400/60
+                  hover:bg-sky-500
+                  hover:text-white
+                  active:border-sky-500
+                  active:bg-sky-600
+                  active:text-white
+                "
+                onClick={handleStartReply}
+              >
+                <Reply className="mr-2 h-4 w-4" />
+                Ответить
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

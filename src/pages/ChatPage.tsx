@@ -934,13 +934,9 @@ function handleEditKeyDown(
       // Не перехватываем вставку в поиске сотрудников и других input'ах.
       // Исключение — поле ввода сообщения.
       if (
-        active instanceof HTMLInputElement &&
+        (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
         active !== messageInputRef.current
       ) {
-        return;
-      }
-
-      if (active instanceof HTMLTextAreaElement) {
         return;
       }
 
@@ -1019,7 +1015,7 @@ function handleEditKeyDown(
         <header className="mb-5">
   <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
     <div className="flex justify-center sm:block">
-      <RadarLogo className="h-24 w-24 shrink-0 sm:h-28 sm:w-28 lg:h-32 lg:w-32" />
+      <RadarLogo />
     </div>
 
     <div className="min-w-0 flex-1 text-center sm:text-left">
@@ -1644,6 +1640,7 @@ function handleEditKeyDown(
                 <input
                   ref={fileInputRef}
                   type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ods,.csv,.txt,.jpg,.jpeg,.png"
                   className="hidden"
                   onChange={handleSelectFile}
                   disabled={!selectedDialogId || sending || uploadingFile}

@@ -1,5 +1,5 @@
-﻿// src/api/history.ts
-import { apiFetch } from "./client";
+// src/api/history.ts
+import { apiFetch, authenticatedFetch } from "./client";
 
 export type HistoryOutcome = "all" | "deal" | "sent" | "not_sent";
 export type HistoryPeriod = "7d" | "30d" | "90d" | "all";
@@ -71,6 +71,7 @@ export type HistoryStatsResponse = {
   deal_jobs: number;
   sent_jobs: number;
   not_sent_jobs: number;
+  unread_jobs: number;
 
   email_jobs_total: number;
   emails_sent_total: number;
@@ -93,6 +94,11 @@ export type ReplyAttachmentItem = {
   size_bytes: number;
   detected_type: string;
   uploaded_at: string;
+};
+
+export type MarkAllRepliesReadResponse = {
+  ok: boolean;
+  marked_count: number;
 };
 
 export type MarkJobRepliesReadResponse = {
@@ -140,6 +146,13 @@ export type SupplierReplyItem = {
 
 export type SupplierRepliesResponse = {
   items: SupplierReplyItem[];
+};
+
+export type SupplierReplySendResponse = {
+  ok: boolean;
+  reply: SupplierReplyItem;
+  sent_copy_saved: boolean;
+  warning?: string | null;
 };
 
 export type HistoryDetailResult = {
@@ -271,7 +284,7 @@ export type DeliveryToggleResponse = {
   delivery_done_at: string | null;
 };
 
-function buildQuery(params: Record<string, string | number | undefined | null>) {
+function buildQuery(params: Record<string, string | number | boolean | undefined | null>) {
   const search = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -291,6 +304,7 @@ export async function listHistory(
     limit?: number;
     offset?: number;
     outcome?: HistoryOutcome;
+    unread_only?: boolean;
     period?: HistoryPeriod;
     q?: string;
   } = {}
@@ -299,6 +313,7 @@ export async function listHistory(
     limit: params.limit ?? 50,
     offset: params.offset ?? 0,
     outcome: params.outcome ?? "all",
+    unread_only: params.unread_only,
     period: params.period ?? "30d",
     q: params.q,
   });
@@ -391,6 +406,20 @@ export async function getResultReplies(
   );
 }
 
+export async function sendSupplierReply(
+  resultId: number,
+  body: string,
+  signatureId?: number | null
+): Promise<SupplierReplySendResponse> {
+  return apiFetch<SupplierReplySendResponse>(
+    `/history/results/${resultId}/replies`,
+    {
+      method: "POST",
+      json: { body, signature_id: signatureId ?? null },
+    }
+  );
+}
+
 /** Загрузить файл КП к конкретному поставщику */
 export async function uploadQuoteFile(
   resultId: number,
@@ -421,14 +450,6 @@ export function quoteFileDownloadUrl(fileId: number): string {
   return `${baseUrl}/history/quote-files/${fileId}/download`;
 }
 
-function getAuthToken(): string | null {
-  try {
-    return localStorage.getItem("SMARTOFFER_AUTH_TOKEN");
-  } catch {
-    return null;
-  }
-}
-
 function filenameFromContentDisposition(value: string | null): string | null {
   if (!value) return null;
 
@@ -454,28 +475,7 @@ export async function downloadQuoteFile(fileId: number): Promise<{
   filename: string;
   contentType: string;
 }> {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL;
-
-  if (!baseUrl) {
-    throw new Error(
-      "VITE_API_BASE_URL is not set. Create .env.local with VITE_API_BASE_URL=http://127.0.0.1:10000"
-    );
-  }
-
-  const headers: HeadersInit = {};
-  const token = getAuthToken();
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${baseUrl}/history/quote-files/${fileId}/download`,
-    {
-      method: "GET",
-      headers,
-    }
-  );
+  const response = await authenticatedFetch(`/history/quote-files/${fileId}/download`, { method: "GET" });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -529,6 +529,12 @@ export async function setJobDeliveryDone(
   });
 }
 
+export async function markAllRepliesRead(): Promise<MarkAllRepliesReadResponse> {
+  return apiFetch<MarkAllRepliesReadResponse>("/history/replies/read-all", {
+    method: "POST",
+  });
+}
+
 export async function markJobRepliesRead(
   jobId: number
 ): Promise<MarkJobRepliesReadResponse> {
@@ -549,4 +555,4 @@ export async function markResultRepliesRead(
       method: "POST",
     }
   );
-}  
+}

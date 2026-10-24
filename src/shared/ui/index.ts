@@ -8,5 +8,5 @@ export * from "./dialog";
 export * from "./collapsible";
 export * from "./scroll-area";
 export * from "./toaster";
-export * from "./sonner";
+export { Toaster as Sonner, toast } from "./sonner";
 export * from "./tooltip";

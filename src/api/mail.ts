@@ -26,7 +26,8 @@ export async function sendRFQ(
   searchJobId: number,
   subject: string,
   body: string,
-  suppliers: Supplier[]
+  suppliers: Supplier[],
+  signatureId?: number | null
 ): Promise<
   Map<
     string,
@@ -53,6 +54,7 @@ export async function sendRFQ(
       manual_emails: manual_emails.length ? manual_emails : null,
       subject,
       body,
+      signature_id: signatureId ?? null,
     },
   });
 

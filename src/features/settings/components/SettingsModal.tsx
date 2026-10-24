@@ -1,4 +1,5 @@
-﻿import * as React from "react";
+import { safeWebsiteUrl } from "@/shared/utils/browserSecurity";
+import * as React from "react";
 import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
@@ -10,6 +11,7 @@ import {
   ChevronDown,
   Mail,
   FileText,
+  PenLine,
   ExternalLink,
   CheckCircle2,
   AlertCircle,
@@ -41,6 +43,10 @@ import {
 
 import {
   addTeamManager,
+  acceptTeamInvitation,
+  declineTeamInvitation,
+  listTeamInvitations,
+  type TeamInvitation,
   createTeam,
   fetchTeamMe,
   listTeamManagers,
@@ -49,7 +55,7 @@ import {
   type TeamMember,
 } from "@/api/team";
 
-import { clearAuthToken } from "@/shared/utils/auth";
+import { EmailSignaturesPanel } from "./EmailSignaturesPanel";
 
 export const STORAGE_KEY = "smartoffer.settings";
 export const DEFAULT_TEMPLATE = `Добрый день!
@@ -59,11 +65,7 @@ export const DEFAULT_TEMPLATE = `Добрый день!
 
 - Технические характеристики: 
 
-- Колличество:
-
-
-С уважением,
-{{user_name}}`;
+- Количество:`;
 
 export type SettingsState = {
   template: string;
@@ -187,6 +189,7 @@ export function SettingsModal({
     | "billing"
     | "team"
     | "template"
+    | "signatures"
     | "danger"
     | null
   >("auth");
@@ -196,6 +199,8 @@ export function SettingsModal({
   const [providers, setProviders] = React.useState<EmailProviderPreset[]>([]);
   const [providerId, setProviderId] = React.useState<string>("");
   const [appPassword, setAppPassword] = React.useState<string>("");
+  const [customSmtpHost, setCustomSmtpHost] = React.useState("");
+  const [customSmtpSecurity, setCustomSmtpSecurity] = React.useState<"ssl" | "starttls">("starttls");
 
   const [smtpConsentChecked, setSmtpConsentChecked] = React.useState(false);
 
@@ -223,6 +228,7 @@ export function SettingsModal({
 
   const [teamMe, setTeamMe] = React.useState<TeamMe | null>(null);
   const [teamMembers, setTeamMembers] = React.useState<TeamMember[]>([]);
+  const [teamInvitations, setTeamInvitations] = React.useState<TeamInvitation[]>([]);
   const [teamEmail, setTeamEmail] = React.useState("");
   const [teamLoading, setTeamLoading] = React.useState(false);
   const [teamSaving, setTeamSaving] = React.useState(false);
@@ -257,7 +263,7 @@ export function SettingsModal({
   const isActiveBusinessPlan =
     billing?.current_plan_code === "max_1000" && billing?.status === "active";
 
-  const canShowTeamSection = Boolean(isActiveBusinessPlan || teamMe?.has_team);
+  const canShowTeamSection = Boolean(isActiveBusinessPlan || teamMe?.has_team || teamInvitations.length);
   const canManageTeam = Boolean(teamMe?.can_manage_team);
   const isTeamManager = teamMe?.role === "manager";
 
@@ -287,8 +293,9 @@ export function SettingsModal({
     try {
       setTeamLoading(true);
 
-      const me = await fetchTeamMe();
+      const [me, invitations] = await Promise.all([fetchTeamMe(), listTeamInvitations()]);
       setTeamMe(me);
+      setTeamInvitations(invitations.items);
 
       if (me.can_manage_team) {
         const members = await listTeamManagers();
@@ -299,6 +306,7 @@ export function SettingsModal({
     } catch {
       setTeamMe(null);
       setTeamMembers([]);
+      setTeamInvitations([]);
     } finally {
       setTeamLoading(false);
     }
@@ -340,6 +348,8 @@ export function SettingsModal({
     getEmailSettings()
       .then((s: any) => {
         if (s?.provider_id) setProviderId(s.provider_id);
+        setCustomSmtpHost(s?.provider_id === "custom" ? s.smtp_host : "");
+        setCustomSmtpSecurity(s?.smtp_security === "ssl" ? "ssl" : "starttls");
 
         if (s.is_verified) {
           setSmtpStatus({
@@ -594,18 +604,22 @@ if (!offerAccepted) {
     setSmtpStatus({ state: "idle" });
 
     try {
-      const verifyRes = await verifyEmailSmtp({
+      await saveEmailSettings({
         provider_id: selectedProvider.id,
-        smtp_host: selectedProvider.smtp_host,
-        smtp_port: selectedProvider.smtp_port,
-        smtp_security: normalizeSecurity(selectedProvider.smtp_security as string),
+        smtp_host: selectedProvider.id === "custom" ? customSmtpHost.trim() : selectedProvider.smtp_host,
+        smtp_port: selectedProvider.id === "custom" ? (customSmtpSecurity === "ssl" ? 465 : 587) : selectedProvider.smtp_port,
+        smtp_security: selectedProvider.id === "custom" ? customSmtpSecurity : normalizeSecurity(selectedProvider.smtp_security as string),
         smtp_username: meEmail,
         smtp_password: appPassword.trim(),
         from_email: meEmail,
-        test_to_email: meEmail,
-        subject: "Smartoffer: тестовое письмо",
-        body: "Это тестовое письмо для проверки настроек SMTP/IMAP в Smartoffer.",
+        personal_data_consent_accepted: smtpConsentChecked,
+        offer_accepted: offerAccepted,
       });
+
+      // A successful save invalidates the previous mailbox state immediately.
+      setEmailAccessStatus(null);
+      setSmtpStatus({ state: "idle" });
+      const verifyRes = await verifyEmailSmtp();
 
       if (!verifyRes.ok) {
         const msg =
@@ -622,23 +636,12 @@ if (!offerAccepted) {
         return;
       }
 
-      await saveEmailSettings({
-        provider_id: selectedProvider.id,
-        smtp_host: selectedProvider.smtp_host,
-        smtp_port: selectedProvider.smtp_port,
-        smtp_security: normalizeSecurity(selectedProvider.smtp_security as string),
-        smtp_username: meEmail,
-        smtp_password: appPassword.trim(),
-        from_email: meEmail,
-        personal_data_consent_accepted: smtpConsentChecked,
-        offer_accepted: offerAccepted,
-      } as any);
-
       setSmtpConsentChecked(true);
       setSmtpConsentLocked(true);
       setOfferAccepted(true);
       setOfferAcceptedLocked(true);
 
+      setEmailAccessStatus(await getEmailAccessStatus());
       const imapOk = await saveImapConsentAndRefresh();
 
       if (!imapOk) {
@@ -682,7 +685,7 @@ async function handleCreateTeam() {
 
     toast({
       title: "Команда создана",
-      description: "Теперь можно добавить менеджеров.",
+      description: "Теперь можно пригласить сотрудников.",
     });
   } catch (e) {
     toast({
@@ -711,17 +714,17 @@ async function handleAddTeamManager() {
   setTeamSaving(true);
 
   try {
-    await addTeamManager(email);
+    const member = await addTeamManager(email);
     setTeamEmail("");
     await refreshTeam();
 
     toast({
-      title: "Менеджер добавлен",
+      title: member.status === "active" ? "Сотрудник уже в команде" : "Приглашение отправлено",
       description: email,
     });
   } catch (e) {
     toast({
-      title: "Не удалось добавить менеджера",
+      title: "Не удалось пригласить сотрудника",
       description:
         e instanceof Error
           ? e.message
@@ -737,7 +740,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
   if (member.role === "owner") return;
 
   const confirmed = window.confirm(
-    `Отключить менеджера ${member.email} от команды?`
+    member.status === "pending" ? `Отменить приглашение для ${member.email}?` : `Отключить менеджера ${member.email} от команды?`
   );
 
   if (!confirmed) return;
@@ -749,7 +752,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
     await refreshTeam();
 
     toast({
-      title: "Менеджер отключен",
+      title: member.status === "pending" ? "Приглашение отменено" : "Менеджер отключен",
       description: member.email,
     });
   } catch (e) {
@@ -760,6 +763,26 @@ async function handleRemoveTeamManager(member: TeamMember) {
     });
   } finally {
     setTeamRemovingId(null);
+  }
+}
+
+async function handleTeamInvitation(memberId: number, action: "accept" | "decline") {
+  if (teamSaving) return;
+  setTeamSaving(true);
+  try {
+    if (action === "accept") {
+      await acceptTeamInvitation(memberId);
+      await Promise.all([refreshTeam(), refreshBilling()]);
+    } else {
+      await declineTeamInvitation(memberId);
+      await refreshTeam();
+    }
+    toast({ title: action === "accept" ? "Вы присоединились к команде" : "Приглашение отклонено" });
+  } catch (e) {
+    toast({ title: "Не удалось обработать приглашение", description: e instanceof Error ? e.message : "Обновите данные и попробуйте снова", variant: "destructive" });
+    await refreshTeam();
+  } finally {
+    setTeamSaving(false);
   }
 }
 
@@ -783,7 +806,6 @@ async function handleRemoveTeamManager(member: TeamMember) {
         localStorage.removeItem(STORAGE_KEY);
       } catch {}
 
-      clearAuthToken();
       onOpenChange(false);
 
       toast({
@@ -857,7 +879,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
 
                   {selectedProvider?.app_password_url && (
                     <a
-                      href={selectedProvider.app_password_url}
+                      href={safeWebsiteUrl(selectedProvider.app_password_url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
@@ -871,6 +893,25 @@ async function handleRemoveTeamManager(member: TeamMember) {
                     Выберите провайдера, перейдите по инструкции, создайте пароль приложения и вставьте его ниже.
                   </p>
                 </div>
+
+                {providerId === "custom" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-smtp-host">SMTP-сервер корпоративной почты</Label>
+                    <Input id="custom-smtp-host" value={customSmtpHost}
+                      onChange={(e) => setCustomSmtpHost(e.target.value)}
+                      placeholder="smtp.company.ru" disabled={saving} />
+                    <Label htmlFor="custom-smtp-security">Защищённое соединение</Label>
+                    <select id="custom-smtp-security" value={customSmtpSecurity} disabled={saving}
+                      onChange={(e) => setCustomSmtpSecurity(e.target.value === "ssl" ? "ssl" : "starttls")}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="ssl">SSL — порт 465</option>
+                      <option value="starttls">STARTTLS — порт 587</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Автоматическая IMAP-синхронизация для другого провайдера пока не поддерживается.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="app-pass">Пароль приложения</Label>
@@ -917,7 +958,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
         <Link
           to="/personal-data-consent"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
         >
           Согласие на обработку ПДн
@@ -927,7 +968,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
         <Link
           to="/privacy"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
         >
           Политика конфиденциальности
@@ -937,7 +978,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
         <Link
           to="/data-retention"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
         >
           Политика хранения данных
@@ -982,7 +1023,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
       <Link
         to="/imap-email-sync-consent"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
         Открыть согласие на обработку email-данных
@@ -1019,7 +1060,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
       <Link
         to="/offer"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
         Открыть публичную оферту
@@ -1279,6 +1320,16 @@ async function handleRemoveTeamManager(member: TeamMember) {
 
                 {expanded === "team" && (
                   <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+                    {teamInvitations.map((invitation) => (
+                      <div key={invitation.id} className="rounded-lg border border-primary/20 bg-primary/10 p-3 space-y-3 text-sm">
+                        <p>Вас приглашают присоединиться к команде «{invitation.organization_name}».</p>
+                        <p className="text-muted-foreground">После присоединения ваши рабочие запросы будут использовать общий лимит Business руководителя. Ваша почта SMTP/IMAP останется личной.</p>
+                        <div className="flex gap-2">
+                          <Button disabled={teamSaving} onClick={() => handleTeamInvitation(invitation.id, "accept")}>Присоединиться</Button>
+                          <Button variant="outline" disabled={teamSaving} onClick={() => handleTeamInvitation(invitation.id, "decline")}>Отклонить</Button>
+                        </div>
+                      </div>
+                    ))}
                     {teamLoading ? (
                       <div className="text-sm text-muted-foreground">
                         Загрузка команды...
@@ -1294,7 +1345,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
                     ) : !teamMe?.has_team ? (
                       <div className="space-y-3">
                         <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-muted-foreground leading-relaxed">
-                          Команда доступна на тарифе Бизнес. Руководитель сможет добавить менеджеров, а их запросы будут расходовать общий лимит тарифа.
+                          Для создания своей команды нужен тариф Бизнес. Сотрудники используют общий лимит руководителя после принятия приглашения.
                         </div>
 
                         <Button
@@ -1339,7 +1390,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="team-manager-email">Добавить менеджера</Label>
+                          <Label htmlFor="team-manager-email">Пригласить сотрудника</Label>
 
                           <div className="flex gap-2">
                             <Input
@@ -1356,12 +1407,12 @@ async function handleRemoveTeamManager(member: TeamMember) {
                               onClick={handleAddTeamManager}
                               disabled={teamSaving || !teamEmail.trim()}
                             >
-                              Добавить
+                              Пригласить
                             </Button>
                           </div>
 
                           <p className="text-xs text-muted-foreground">
-                            Менеджер должен быть уже зарегистрирован в SmartOffer. Он будет использовать общий лимит тарифа Бизнес, но работать со своей SMTP/IMAP-почтой.
+                            Сотрудник должен быть уже зарегистрирован в SmartOffer. Приглашение появится в его настройках, в разделе «Команда». После принятия он использует общий лимит тарифа Бизнес и работает со своей SMTP/IMAP-почтой.
                           </p>
                         </div>
 
@@ -1395,7 +1446,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
                                       <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                                         <span className="truncate">{member.email}</span>
                                         <span>•</span>
-                                        <span>{isOwner ? "Руководитель" : "Менеджер"}</span>
+                                        <span>{isOwner ? "Руководитель" : member.status === "pending" ? "Менеджер · Ожидает подтверждения" : "Менеджер · Активен"}</span>
                                       </div>
                                     </div>
 
@@ -1408,7 +1459,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
                                         disabled={teamRemovingId === member.id}
                                         className="shrink-0 text-destructive hover:text-destructive"
                                       >
-                                        {teamRemovingId === member.id ? "..." : "Отключить"}
+                                        {teamRemovingId === member.id ? "..." : member.status === "pending" ? "Отменить приглашение" : "Отключить"}
                                       </Button>
                                     )}
                                   </div>
@@ -1455,7 +1506,7 @@ async function handleRemoveTeamManager(member: TeamMember) {
                     onChange={(e) => setTemplate(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Для ускорения коммуникации советуем указать реквизиты компании в подписи к письму при необходимости.
+                    Здесь хранится только основной текст запроса. Подписи настраиваются отдельно в разделе «Подписи».
                   </p>
                 </div>
 
@@ -1466,6 +1517,22 @@ async function handleRemoveTeamManager(member: TeamMember) {
                 </div>
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() => setExpanded((previous) => previous === "signatures" ? null : "signatures")}
+              className="w-full flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <PenLine className="h-4 w-4 text-muted-foreground" />
+                Подписи
+              </span>
+              <ChevronDown className={`h-4 w-4 transition-transform ${expanded === "signatures" ? "rotate-180" : ""}`} />
+            </button>
+
+            <div hidden={expanded !== "signatures"}>
+              {open && <EmailSignaturesPanel active={expanded === "signatures"} />}
+            </div>
 
             <button
               type="button"

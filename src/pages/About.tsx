@@ -1,3 +1,4 @@
+import { qrImageSrc } from "@/shared/utils/browserSecurity";
 ﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -158,9 +159,12 @@ function SbpQrDialog({
 
           <div className="mt-5 rounded-xl border border-white/10 bg-white p-4 flex items-center justify-center">
             {qrSvg ? (
-              <div
-                className="w-[260px] h-[260px] flex items-center justify-center"
-                dangerouslySetInnerHTML={{ __html: qrSvg }}
+              <img
+                className="w-[260px] h-[260px] object-contain"
+                width={260}
+                height={260}
+                alt="QR-код для оплаты по СБП"
+                src={qrImageSrc(qrSvg)}
               />
             ) : (
               <div className="text-sm text-black/60">QR-код не получен</div>

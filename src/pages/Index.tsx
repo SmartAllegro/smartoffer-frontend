@@ -1,4 +1,5 @@
-﻿import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useQuery } from "@tanstack/react-query";
 import { StatusBadge } from '@/features/search/components/StatusBadge';
 import { InputBlock } from '@/features/search/components/InputBlock';
 import { SupplierTable } from '@/features/search/components/SupplierTable';
@@ -7,7 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { SettingsModal, DEFAULT_TEMPLATE, STORAGE_KEY } from '@/features/settings/components/SettingsModal';
 import { BillingCounter } from '@/features/search/components/BillingCounter';
 import { Button } from '@/shared/ui/button';
-import { BookOpen, Brain, History, LogIn, LogOut, MessageCircle, ShieldAlert } from 'lucide-react';
+import { BookOpen, Brain, History, LogIn, LogOut, MessageCircle, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { getChatUnreadCount } from "@/api/chat";
 import { RequestStatus, Supplier } from '@/shared/types/rfq';
 import {
@@ -30,7 +31,9 @@ import {
 } from "@/api/ai";
 import { AuthModal } from "@/features/auth/components/AuthModal";
 import { fetchMe, type UserMe } from "@/api/auth";
-import { clearAuthToken, getAuthToken } from "@/shared/utils/auth";
+import { getAdminMfaStatus } from "@/api/admin";
+import { clearAuthToken, getAuthContextKey, getAuthToken, subscribeAuth } from "@/shared/utils/auth";
+import { logoutUser } from "@/api/auth";
 
 import { sendRFQ } from "@/api/mail";
 
@@ -201,15 +204,22 @@ export default function Index() {
 
   const [searchMode, setSearchMode] = useState<SearchMode>("cis");
 
+  const adminNavQuery = useQuery({
+    queryKey: ["admin", "mfa", "nav", me?.id],
+    queryFn: getAdminMfaStatus,
+    retry: false,
+    enabled: !!me && !!getAuthToken(),
+  });
+
   const canUseInternationalSearch = useMemo(() => {
   const planCode = billing?.current_plan_code || "";
   return ["free_50", "pro_500", "max_1000"].includes(planCode);
 }, [billing?.current_plan_code]);
 
-const handleLogout = useCallback(() => {
-  clearAuthToken();
+const clearAuthenticatedState = useCallback(() => {
   setMe(null);
   setBilling(null);
+  setBillingLoading(false);
   setChatUnreadCount(0);
   setSuppliers([]);
   setRequestId("");
@@ -224,6 +234,28 @@ const handleLogout = useCallback(() => {
   setMainAiError(null);
   setMainAiCached(false);
 }, []);
+
+const handleLogout = useCallback(async () => {
+  try { await logoutUser(); }
+  catch {
+    toast({ title: "Вы вышли на этом устройстве", description: "Сервер не подтвердил выход. При восстановлении сети повторите выход.", variant: "destructive" });
+  } finally { clearAuthenticatedState(); }
+}, [clearAuthenticatedState, toast]);
+
+useEffect(() => {
+  let generation = getAuthContextKey();
+  return subscribeAuth(() => {
+    if (generation === getAuthContextKey()) return;
+    generation = getAuthContextKey();
+    clearAuthenticatedState();
+    if (getAuthToken()) {
+      const expected = generation;
+      void fetchMe().then(user => {
+        if (expected === getAuthContextKey() && getAuthToken()) setMe(user);
+      }).catch(() => {});
+    }
+  });
+}, [clearAuthenticatedState]);
 
 useEffect(() => {
   if (!canUseInternationalSearch && searchMode === "international") {
@@ -267,32 +299,34 @@ useEffect(() => {
     if (!token) return;
 
     let cancelled = false;
+    const generation = getAuthContextKey();
+    const isCurrent = () => !cancelled && generation === getAuthContextKey() && !!getAuthToken();
 
     (async () => {
       try {
         setBillingLoading(true);
         const user = await fetchMe();
-        if (cancelled) return;
+        if (!isCurrent()) return;
 
         setMe(user);
 
         try {
           const nextBilling = await fetchBillingMe();
-          if (!cancelled) {
+          if (isCurrent()) {
             setBilling(nextBilling);
           }
         } catch {
-          if (!cancelled) {
+          if (isCurrent()) {
             setBilling(null);
           }
         } finally {
-          if (!cancelled) {
+          if (isCurrent()) {
             setBillingLoading(false);
           }
         }
       } catch {
-        clearAuthToken();
-        if (!cancelled) {
+        if (isCurrent()) {
+          clearAuthToken();
           setMe(null);
           setBilling(null);
           setBillingLoading(false);
@@ -962,6 +996,19 @@ useEffect(() => {
                     </button>
                   </div>
                 </div>
+
+                {me && adminNavQuery.isSuccess && adminNavQuery.data ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate("/admin")}
+                    className="h-9 w-full border-primary/30 bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground sm:w-auto"
+                  >
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Админ. панель
+                  </Button>
+                ) : null}
 
 <Button
   type="button"

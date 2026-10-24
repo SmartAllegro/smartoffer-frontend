@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/api/email.ts",
+    "src/features/settings/components/SettingsModal.tsx"
+  ]
+}

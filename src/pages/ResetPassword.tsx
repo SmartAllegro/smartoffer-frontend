@@ -1,10 +1,9 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { useToast } from "@/shared/hooks/use-toast";
 import { confirmPasswordReset } from "@/api/auth";
-import { clearAuthToken } from "@/shared/utils/auth";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -44,7 +43,6 @@ export default function ResetPassword() {
         new_password: password,
       });
 
-      clearAuthToken();
 
       toast({
         title: "Пароль обновлён",

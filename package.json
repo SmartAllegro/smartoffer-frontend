@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:quote": "node --test tests/quote-analysis.test.cjs",
+    "test:comparison": "node --test tests/quote-comparison.test.cjs",
+    "test:benefit-index": "node --test tests/quote-benefit-index.test.cjs",
+    "typecheck:quote": "tsc --noEmit -p tsconfig.quote-analysis.json"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

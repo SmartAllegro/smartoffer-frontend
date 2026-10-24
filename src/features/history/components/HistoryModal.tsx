@@ -508,7 +508,7 @@ const emailsSentTotal = normalizeNumber(stats?.emails_sent_total);
     );
 
     try {
-      const res = await setJobDealDone(item.id, next);
+      const res = await setJobDealDone(item.id, { deal_done: next });
 
       setItems((current) =>
         current.map((x) =>

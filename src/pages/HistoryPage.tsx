@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { preopenDownloadTab } from "@/shared/utils/browserSecurity";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import {
@@ -9,7 +10,9 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
+  CheckCheck,
   FileText,
+  Loader2,
   Mail,
   MessageSquareText,
   RefreshCw,
@@ -46,6 +49,7 @@ import {
   getHistoryStats,
   getResultReplies,
   listHistory,
+  markAllRepliesRead,
   markResultRepliesRead,
   listHistoryNotes,
   saveHistoryNote,
@@ -81,11 +85,14 @@ const PERIODS: Array<{ value: HistoryPeriod; label: string }> = [
   { value: "all", label: "Всё время" },
 ];
 
-const OUTCOMES: Array<{ value: HistoryOutcome; label: string }> = [
+type HistoryViewFilter = HistoryOutcome | "unread";
+
+const OUTCOMES: Array<{ value: HistoryViewFilter; label: string }> = [
   { value: "all", label: "Все" },
   { value: "deal", label: "Сделка" },
   { value: "sent", label: "Отправлено" },
   { value: "not_sent", label: "Без отправки" },
+  { value: "unread", label: "Непрочитанные" },
 ];
 
 function formatDateTime(value: string | Date): string {
@@ -688,12 +695,13 @@ function sideAccentClass(outcome: string) {
   return "bg-red-500";
 }
 
-function getFilterCount(stats: HistoryStatsResponse | null, outcome: HistoryOutcome) {
+function getFilterCount(stats: HistoryStatsResponse | null, outcome: HistoryViewFilter) {
   if (!stats) return 0;
 
   if (outcome === "all") return normalizeNumber(stats.total_jobs);
   if (outcome === "deal") return normalizeNumber(stats.deal_jobs);
   if (outcome === "sent") return normalizeNumber(stats.sent_jobs);
+  if (outcome === "unread") return normalizeNumber(stats.unread_jobs);
   return normalizeNumber(stats.not_sent_jobs);
 }
 
@@ -801,6 +809,14 @@ function StatCard({
 export default function HistoryPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setHistoryParam = (key: string, value: string) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set(key, value);
+      return next;
+    }, { replace: true });
+  };
 
   const [items, setItems] = useState<HistoryListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -809,14 +825,21 @@ export default function HistoryPage() {
 
   const [loadingFirst, setLoadingFirst] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
 
-  const [period, setPeriod] = useState<HistoryPeriod>("30d");
-  const [outcome, setOutcome] = useState<HistoryOutcome>("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const period = PERIODS.find((item) => item.value === searchParams.get("period"))?.value ?? "30d";
+  const setPeriod = (value: HistoryPeriod) => setHistoryParam("period", value);
+  const requestedFilter = OUTCOMES.find((item) => item.value === searchParams.get("filter"))?.value ?? "all";
+  const setViewFilter = (value: HistoryViewFilter) => setHistoryParam("filter", value);
+  const searchQuery = searchParams.get("q") ?? "";
+  const setSearchQuery = (value: string) => setHistoryParam("q", value);
 
   const [historyScope, setHistoryScope] = useState<"personal" | "team">("personal");
+  const viewFilter = historyScope === "team" && requestedFilter === "unread" ? "all" : requestedFilter;
+  const unreadOnly = historyScope === "personal" && viewFilter === "unread";
+  const outcome: HistoryOutcome = viewFilter === "unread" ? "all" : viewFilter;
   const [teamMe, setTeamMe] = useState<TeamMe | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamActorFilter, setTeamActorFilter] = useState<string>("all");
@@ -848,10 +871,7 @@ export default function HistoryPage() {
   const [allDeliveryNotes, setAllDeliveryNotes] = useState<DeliveryNoteItem[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
 
-  const selectedFilterCount = useMemo(() => {
-    if (outcome === "all") return total || getFilterCount(stats, "all");
-    return getFilterCount(stats, outcome);
-  }, [outcome, stats, total]);
+  const selectedFilterCount = total;
 
   const totalJobs = normalizeNumber(stats?.total_jobs);
   const sentJobs = normalizeNumber(stats?.sent_jobs);
@@ -863,9 +883,9 @@ export default function HistoryPage() {
 
 const openDetail = useCallback(
   (item: HistoryListItem) => {
-    navigate(`/requests/${item.id}`);
+    navigate(`/requests/${item.id}`, { state: { historySearch: searchParams.toString() } });
   },
-  [navigate]
+  [navigate, searchParams]
 );
 
 useEffect(() => {
@@ -882,7 +902,7 @@ useEffect(() => {
 
       listTeamManagers()
         .then((members) => {
-          setTeamMembers(Array.isArray(members.items) ? members.items : []);
+          setTeamMembers(Array.isArray(members.items) ? members.items.filter((member) => member.status === "active") : []);
         })
         .catch(() => {
           setTeamMembers([]);
@@ -1002,7 +1022,14 @@ const loadDeliveryItems = useCallback(async () => {
     }
   }, [historyScope, period, selectedTeamActorId, toast]);
 
+  // Discard an old page if filters change or a read refresh overtakes pagination.
+  const listRequest = useRef(0);
+  const listKey = `${historyScope}:${outcome}:${unreadOnly}:${period}:${searchQuery}:${selectedTeamActorId}`;
+  const currentListKey = useRef(listKey);
+  currentListKey.current = listKey;
+
   const loadFirstPage = useCallback(async () => {
+    const request = ++listRequest.current;
     setLoadingFirst(true);
     setItems([]);
     setOffset(0);
@@ -1023,17 +1050,20 @@ const loadDeliveryItems = useCallback(async () => {
               limit: PAGE_LIMIT,
               offset: 0,
               outcome,
+              unread_only: unreadOnly,
               period,
               q: searchQuery.trim() || undefined,
             });
 
+      if (request !== listRequest.current || listKey !== currentListKey.current) return;
       const page = Array.isArray(res?.items) ? res.items : [];
 
       setItems(page);
       setTotal(normalizeNumber(res?.total));
       setOffset(page.length);
-      setHasMore(page.length === PAGE_LIMIT);
+      setHasMore(page.length < normalizeNumber(res?.total));
     } catch (e) {
+      if (request !== listRequest.current || listKey !== currentListKey.current) return;
       toast({
         title: "Не удалось загрузить историю",
         description: e instanceof Error ? e.message : "Ошибка",
@@ -1041,17 +1071,40 @@ const loadDeliveryItems = useCallback(async () => {
       });
       setHasMore(false);
     } finally {
-      setLoadingFirst(false);
+      if (request === listRequest.current) setLoadingFirst(false);
     }
-  }, [historyScope, outcome, period, searchQuery, selectedTeamActorId, toast]);
+  }, [historyScope, outcome, unreadOnly, period, searchQuery, selectedTeamActorId, toast, listKey]);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadFirstPage(), loadStats()]);
   }, [loadFirstPage, loadStats]);
 
+  const handleMarkAllRead = async () => {
+    if (markingAllRead || loadingFirst || loadingMore || statsLoading) return;
+
+    setMarkingAllRead(true);
+    try {
+      const result = await markAllRepliesRead();
+      await refreshAll();
+      toast({
+        title: result.marked_count > 0
+          ? `Отмечено как прочитанное: ${result.marked_count}`
+          : "Непрочитанных уведомлений нет",
+      });
+    } catch {
+      toast({
+        title: "Не удалось отметить уведомления как прочитанные",
+        variant: "destructive",
+      });
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
   const loadMorePage = useCallback(async () => {
     if (!hasMore || loadingMore || loadingFirst) return;
 
+    const request = listRequest.current;
     setLoadingMore(true);
     try {
       const res =
@@ -1068,17 +1121,20 @@ const loadDeliveryItems = useCallback(async () => {
               limit: PAGE_LIMIT,
               offset,
               outcome,
+              unread_only: unreadOnly,
               period,
               q: searchQuery.trim() || undefined,
             });
 
+      if (request !== listRequest.current || listKey !== currentListKey.current) return;
       const page = Array.isArray(res?.items) ? res.items : [];
 
       setItems((prev) => [...prev, ...page]);
       setOffset((prev) => prev + page.length);
       setTotal(normalizeNumber(res?.total));
-      setHasMore(page.length === PAGE_LIMIT);
+      setHasMore(offset + page.length < normalizeNumber(res?.total));
     } catch (e) {
+      if (request !== listRequest.current || listKey !== currentListKey.current) return;
       toast({
         title: "Не удалось догрузить историю",
         description: e instanceof Error ? e.message : "Ошибка",
@@ -1095,6 +1151,8 @@ const loadDeliveryItems = useCallback(async () => {
   loadingFirst,
   offset,
   outcome,
+  unreadOnly,
+  listKey,
   period,
   searchQuery,
   selectedTeamActorId,
@@ -1452,7 +1510,7 @@ const handleSetReplyStatus = useCallback(
 
 const handleOpenQuoteFile = useCallback(
   async (supplierId: string, backendResultId: number) => {
-    const tab = window.open("about:blank", "_blank");
+    const tab = preopenDownloadTab();
 
     try {
       const replies = await getResultReplies(backendResultId);
@@ -1552,6 +1610,8 @@ const handleMarkSupplierDialogRead = useCallback(
             : s
         )
       );
+      if (unreadOnly) await refreshAll();
+      else await loadStats();
     } catch (e) {
       setDetailSuppliers(prevSuppliers);
 
@@ -1576,7 +1636,7 @@ const handleMarkSupplierDialogRead = useCallback(
       });
     }
   },
-  [detailSuppliers, detailJobId, toast]
+  [detailSuppliers, detailJobId, toast, unreadOnly, refreshAll, loadStats]
 );
 
 const handleUploadQuoteFile = useCallback(
@@ -1730,6 +1790,25 @@ const handleUploadQuoteFile = useCallback(
 )}
           </div>
 
+          <div className="flex items-center gap-2">
+            {historyScope === "personal" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleMarkAllRead}
+                disabled={loadingFirst || loadingMore || statsLoading || markingAllRead}
+                aria-busy={markingAllRead}
+                className="h-10 border-[#2f3a4d] bg-[#151f2d] text-white hover:border-[#ffbf00] hover:bg-[#ffbf00] hover:text-[#2b2100] disabled:opacity-50"
+                title="Прочитать все"
+              >
+                {markingAllRead ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCheck className="mr-2 h-4 w-4" />
+                )}
+                Прочитать все
+              </Button>
+            )}
           <Button
             variant="outline"
             size="sm"
@@ -1755,6 +1834,7 @@ const handleUploadQuoteFile = useCallback(
             />
             Обновить
           </Button>
+          </div>
         </div>
 
 <div className="mt-5 grid grid-cols-1 gap-5 2xl:grid-cols-[320px_minmax(0,1280px)] 2xl:items-start 2xl:justify-center">
@@ -1877,18 +1957,16 @@ const handleUploadQuoteFile = useCallback(
 
 <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
   <div className="flex flex-wrap gap-2">
-    {OUTCOMES.map((item) => {
-      const active = outcome === item.value;
-      const count =
-        item.value === "all"
-          ? total || getFilterCount(stats, item.value)
-          : getFilterCount(stats, item.value);
+    {OUTCOMES.filter((item) => historyScope === "personal" || item.value !== "unread").map((item) => {
+      const active = viewFilter === item.value;
+      const count = getFilterCount(stats, item.value);
 
       return (
         <button
           key={item.value}
           type="button"
-          onClick={() => setOutcome(item.value)}
+          onClick={() => setViewFilter(item.value)}
+          aria-pressed={active}
           className={cn(
             "inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm transition",
             active
@@ -1976,7 +2054,9 @@ const handleUploadQuoteFile = useCallback(
             </div>
           ) : items.length === 0 ? (
             <div className="rounded-xl border border-[#2f3a4d] bg-[#151f2d] py-10 text-center text-white/55">
-              {searchQuery || outcome !== "all"
+              {unreadOnly
+                ? "Непрочитанных ответов нет"
+                : searchQuery || outcome !== "all"
                 ? "По выбранному фильтру ничего не найдено"
                 : "История запросов пуста"}
             </div>
@@ -2055,7 +2135,7 @@ const handleUploadQuoteFile = useCallback(
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          navigate(`/requests/${item.id}`);
+                          openDetail(item);
                         }}
                         className="
                           relative

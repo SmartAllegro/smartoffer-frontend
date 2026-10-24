@@ -31,11 +31,13 @@ export async function createEquipmentAnalysis(
 
 export type SupplierAnalysisData = {
   summary: string;
+  strengths?: string[];
   contact_quality: string;
   domain_assessment: string;
   communication_status: string[];
   risk_factors: string[];
   recommended_actions: string[];
+  deal_assessment?: string;
   risk_level: "low" | "medium" | "high" | "unknown";
   company_by_inn?: {
     available?: boolean;
@@ -49,9 +51,29 @@ export type SupplierAnalysisData = {
     founders?: string[];
     main_activity?: string | null;
     financials?: string[];
+    financial_years?: SupplierCompanyFinancialYear[];
+    local_tax?: SupplierCompanyLocalTax | null;
     reliability_notes?: string[];
     limitations?: string | null;
   } | null;
+};
+
+export type SupplierCompanyFinancialYear = {
+  year: number;
+  revenue_rub?: number | null;
+  net_profit_rub?: number | null;
+  assets_rub?: number | null;
+  equity_rub?: number | null;
+  accounts_payable_rub?: number | null;
+  cash_rub?: number | null;
+  inventories_rub?: number | null;
+};
+
+export type SupplierCompanyLocalTax = {
+  year: number;
+  total_income_rub?: number | null;
+  total_expenses_rub?: number | null;
+  employee_count?: number | null;
 };
 
 export type SupplierAnalysisResponse = {

@@ -40,22 +40,6 @@ export async function listEmailProviders(): Promise<EmailProviderPreset[]> {
     .filter(Boolean) as EmailProviderPreset[];
 }
 
-export type EmailVerifyIn = {
-  provider_id?: string | null;
-  smtp_host?: string | null;
-  smtp_port?: number | null;
-  smtp_security?: "ssl" | "starttls" | null;
-
-  smtp_username: string;
-  smtp_password: string;
-
-  from_email?: string | null;
-  test_to_email?: string | null;
-
-  subject?: string;
-  body?: string;
-};
-
 export type EmailVerifyOut = {
   ok: boolean;
   error_code?: string | null;
@@ -63,10 +47,9 @@ export type EmailVerifyOut = {
   hint?: string | null;
 };
 
-export async function verifyEmailSmtp(payload: EmailVerifyIn): Promise<EmailVerifyOut> {
+export async function verifyEmailSmtp(): Promise<EmailVerifyOut> {
   return apiFetch<EmailVerifyOut>("/email/verify", {
     method: "POST",
-    json: payload,
   });
 }
 

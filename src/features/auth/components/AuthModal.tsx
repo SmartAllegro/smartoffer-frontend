@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
@@ -14,7 +14,6 @@ import {
   requestPasswordReset,
   type UserMe,
 } from "@/api/auth";
-import { setAuthToken } from "@/shared/utils/auth";
 
 type Props = {
   open: boolean;
@@ -126,11 +125,10 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
 
     setLoading(true);
     try {
-      const token = await loginUser({
+      await loginUser({
         email: loginEmail,
         password: loginPassword,
       });
-      setAuthToken(token.access_token);
 
       await doFetchMeAndClose();
       toast({ title: "Вход выполнен" });
@@ -195,11 +193,10 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
         terms_accepted: termsAccepted,
       });
 
-      const token = await loginUser({
+      await loginUser({
         email: regEmail.trim(),
         password: regPassword,
       });
-      setAuthToken(token.access_token);
 
       await doFetchMeAndClose();
       toast({ title: "Аккаунт создан" });
@@ -376,7 +373,7 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
       <Link
         to="/privacy"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
         Политика конфиденциальности
@@ -386,7 +383,7 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
       <Link
         to="/data-retention"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
       >
         Политика хранения данных
@@ -418,7 +415,7 @@ export function AuthModal({ open, onOpenChange, onAuthed }: Props) {
                   <Link
                     to="/terms"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 text-xs text-primary hover:underline"
                   >
                     Открыть Пользовательское соглашение

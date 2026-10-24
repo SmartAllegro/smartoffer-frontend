@@ -1,7 +1,7 @@
 import { env } from "@/config/env";
 
 const VISITOR_ID_KEY = "SMARTOFFER_VISITOR_ID_V1";
-const AUTH_TOKEN_KEY = "SMARTOFFER_AUTH_TOKEN";
+import { getAuthToken } from "@/shared/utils/auth";
 
 function createVisitorId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -21,15 +21,6 @@ function getVisitorId(): string {
     return created;
   } catch {
     return createVisitorId();
-  }
-}
-
-function getAuthToken(): string | null {
-  try {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    return token && token.trim() ? token.trim() : null;
-  } catch {
-    return null;
   }
 }
 

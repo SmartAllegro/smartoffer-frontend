@@ -83,6 +83,7 @@ export type SupplierReplyAttachment = {
 
 export type SupplierLatestReply = {
   id: number;
+  is_quote?: boolean;
   source: string;
   direction?: "supplier" | "user" | "system" | string;
   message_type?: "reply" | "quote" | "invoice" | "clarification" | "decline" | "manual_status" | string;

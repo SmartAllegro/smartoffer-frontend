@@ -40,7 +40,7 @@ export type TeamMember = {
   first_name?: string | null;
   last_name?: string | null;
   role: "owner" | "manager" | string;
-  status: "active" | "removed" | string;
+  status: "pending" | "active" | "removed" | string;
   created_at: string;
   accepted_at?: string | null;
 };
@@ -48,6 +48,26 @@ export type TeamMember = {
 export type TeamMembersResponse = {
   items: TeamMember[];
 };
+
+export type TeamInvitation = {
+  id: number;
+  organization_id: number;
+  organization_name: string;
+  status: "pending";
+  created_at: string;
+};
+
+export async function listTeamInvitations(): Promise<{ items: TeamInvitation[] }> {
+  return apiFetch("/team/invitations", { method: "GET" });
+}
+
+export async function acceptTeamInvitation(memberId: number): Promise<TeamMember> {
+  return apiFetch(`/team/invitations/${memberId}/accept`, { method: "POST" });
+}
+
+export async function declineTeamInvitation(memberId: number) {
+  return apiFetch<{ ok: boolean; member_id: number }>(`/team/invitations/${memberId}/decline`, { method: "POST" });
+}
 
 export async function fetchTeamMe(): Promise<TeamMe> {
   return apiFetch<TeamMe>("/team/me", { method: "GET" });

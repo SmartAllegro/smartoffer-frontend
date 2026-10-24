@@ -1,0 +1,42 @@
+.admin-shell {
+  --background: 223 25% 10%;
+  --card: 215 23% 14%;
+  --popover: 215 23% 14%;
+  --border: 215 28% 26%;
+  --input: 215 28% 26%;
+  --admin-bg: #131720;
+  --admin-sidebar: #0e151f;
+  --admin-card: #19212e;
+  --admin-inset: #131d2a;
+  --admin-field: #101927;
+  --admin-header: #171e2a;
+  --admin-table-head: #222e3f;
+  --admin-border: #304057;
+  --admin-text: #f3f5fa;
+  --admin-muted: #97a5b9;
+  --admin-accent: #ffbf00;
+  --admin-info: #63a5fb;
+  --admin-success: #32d6a0;
+  --admin-danger: #ff6176;
+  background: var(--admin-bg);
+  color: var(--admin-text);
+}
+
+.admin-header { background: var(--admin-header); border-color: var(--admin-border); }
+.admin-sidebar { background: var(--admin-sidebar); border-color: var(--admin-border); }
+.admin-card { background: var(--admin-card); border: 1px solid var(--admin-border); border-radius: 12px; }
+.admin-inset { background: var(--admin-inset); border: 1px solid var(--admin-border); border-radius: 9px; }
+.admin-field { background: var(--admin-field); border: 1px solid var(--admin-border); color: var(--admin-text); }
+.admin-panel-title { border-bottom: 1px solid var(--admin-border); }
+.admin-table-head { background: var(--admin-table-head); color: var(--admin-muted); }
+.admin-muted { color: var(--admin-muted); }
+.admin-info { color: var(--admin-info); }
+.admin-accent { color: var(--admin-accent); }
+.admin-shell :is(button, a, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: 2px;
+}
+.admin-shell table { border-collapse: collapse; }
+.admin-shell tbody tr { border-bottom: 1px solid var(--admin-border); }
+.admin-shell tbody tr:last-child { border-bottom: 0; }
+.admin-shell tbody tr:hover { background: rgba(255, 191, 0, 0.045); }

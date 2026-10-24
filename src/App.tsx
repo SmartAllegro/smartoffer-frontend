@@ -1,4 +1,6 @@
-﻿import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { bootstrapAuth } from "@/api/auth";
+import { getAuthContextKey, getAuthToken, subscribeAuth } from "@/shared/utils/auth";
 import { Toaster } from "@/shared/ui/toaster";
 import { Toaster as Sonner } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
@@ -23,6 +25,7 @@ import PaymentResult from "./pages/PaymentResult";
 import HistoryPage from "./pages/HistoryPage";
 import RequestDetailPage from "./pages/RequestDetailPage";
 import ChatPage from "./pages/ChatPage";
+import AdminPage from "./pages/AdminPage";
 import { trackPageView } from "@/api/tracking";
 
 const queryClient = new QueryClient();
@@ -43,7 +46,20 @@ function PageViewTracker() {
   return null;
 }
 
-const App = () => (
+const App = () => {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void bootstrapAuth().finally(() => { if (active) setReady(true); });
+    let generation = getAuthContextKey();
+    const unsubscribe = subscribeAuth(() => {
+      if (!getAuthToken() || generation !== getAuthContextKey()) queryClient.clear();
+      generation = getAuthContextKey();
+    });
+    return () => { active = false; unsubscribe(); };
+  }, []);
+  if (!ready) return <div role="status" className="p-8 text-center">Загрузка…</div>;
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
@@ -54,6 +70,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="/requests/:jobId" element={<RequestDetailPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/email-verification" element={<EmailVerification />} />
@@ -72,6 +89,7 @@ const App = () => (
       </HashRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

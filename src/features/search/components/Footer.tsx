@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { qrImageSrc, safeWebsiteUrl } from "@/shared/utils/browserSecurity";
+import { useEffect, useMemo, useState } from "react";
 import {
   Mail,
   Phone,
@@ -156,9 +157,12 @@ function SbpQrDialog({
 
           <div className="mt-5 rounded-xl border border-white/10 bg-white p-4 flex items-center justify-center">
             {qrSvg ? (
-              <div
-                className="w-[260px] h-[260px] flex items-center justify-center"
-                dangerouslySetInnerHTML={{ __html: qrSvg }}
+              <img
+                className="w-[260px] h-[260px] object-contain"
+                width={260}
+                height={260}
+                alt="QR-код для оплаты по СБП"
+                src={qrImageSrc(qrSvg)}
               />
             ) : (
               <div className="text-sm text-black/60">QR-код не получен</div>
@@ -1111,9 +1115,9 @@ function SupportModal({
               <div className="mt-6 border-t border-white/10 pt-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <a
-                    href={TELEGRAM_URL}
+                    href={safeWebsiteUrl(TELEGRAM_URL)}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="
                       group rounded-xl border border-[#2b6ee7]
                       bg-[radial-gradient(circle_at_top,rgba(52,122,255,0.22),rgba(28,40,69,0.78))]
@@ -1402,7 +1406,7 @@ export function Footer() {
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Phone className="w-4 h-4" />
-                  +7 (999) 2131 015
+                  +7 (999) 2202 333
                 </li>
                 <li className="flex items-start gap-2 text-muted-foreground">
                   <MapPin className="w-4 h-4 mt-0.5" />

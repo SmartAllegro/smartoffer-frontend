@@ -1,4 +1,5 @@
-﻿import { apiFetch } from "./client";
+import { apiFetch, mutateSession, refreshAccessToken } from "./client";
+import { clearAuthToken, removeLegacyAuthToken, setAuthToken } from "@/shared/utils/auth";
 
 export type UserMe = {
   id: number;
@@ -42,9 +43,12 @@ export async function loginUser(payload: {
   email: string;
   password: string;
 }): Promise<{ access_token: string; token_type: string }> {
-  return apiFetch<{ access_token: string; token_type: string }>("/auth/login", {
-    method: "POST",
-    json: payload,
+  return mutateSession(async () => {
+    const result = await apiFetch<{ access_token: string; token_type: string }>("/auth/login", {
+      method: "POST", json: payload,
+    });
+    setAuthToken(result.access_token);
+    return result;
   });
 }
 
@@ -59,9 +63,12 @@ export async function confirmPasswordReset(payload: {
   token: string;
   new_password: string;
 }): Promise<ResetPasswordResponse> {
-  return apiFetch<ResetPasswordResponse>("/auth/reset-password", {
-    method: "POST",
-    json: payload,
+  return mutateSession(async () => {
+    const result = await apiFetch<ResetPasswordResponse>("/auth/reset-password", {
+      method: "POST", json: payload,
+    });
+    clearAuthToken();
+    return result;
   });
 }
 
@@ -73,8 +80,26 @@ export async function deleteCurrentUser(payload: {
   confirm_email: string;
   password: string;
 }): Promise<DeleteAccountResponse> {
-  return apiFetch<DeleteAccountResponse>("/auth/delete-account", {
-    method: "POST",
-    json: payload,
+  const result = await apiFetch<DeleteAccountResponse>("/auth/delete-account", {
+    method: "POST", json: payload,
   });
+  clearAuthToken();
+  return result;
+}
+export async function logoutUser(): Promise<void> {
+  return mutateSession(async () => {
+    try { await apiFetch("/auth/logout", { method: "POST" }); }
+    finally { clearAuthToken(); }
+  });
+}
+
+let bootstrapPromise: Promise<UserMe | null> | null = null;
+export function bootstrapAuth(): Promise<UserMe | null> {
+  removeLegacyAuthToken();
+  if (!bootstrapPromise) bootstrapPromise = (async () => {
+    if (!await refreshAccessToken()) return null;
+    try { return await fetchMe(); }
+    catch { clearAuthToken(); return null; }
+  })();
+  return bootstrapPromise;
 }

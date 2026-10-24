@@ -1,4 +1,5 @@
-﻿import * as React from "react";
+﻿import { safeWebsiteUrl } from "@/shared/utils/browserSecurity";
+import * as React from "react";
 import {
   Send,
   Mail,
@@ -72,7 +73,6 @@ export function SupportModal({
         contact_email: contactEmail.trim(),
         subject: subject.trim(),
         message: message.trim(),
-        search_job_id: searchJobId ?? null,
         page_url: window.location.href,
         source: "footer_modal",
       });
@@ -110,9 +110,9 @@ export function SupportModal({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <a
-                href={TELEGRAM_URL}
+                href={safeWebsiteUrl(TELEGRAM_URL)}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="rounded-2xl border border-border bg-background/40 p-5 transition hover:border-primary hover:bg-background/70"
               >
                 <div className="flex items-center gap-3 mb-3">

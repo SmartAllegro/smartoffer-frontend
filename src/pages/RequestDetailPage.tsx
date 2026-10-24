@@ -1,5 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { preopenDownloadTab, safeWebsiteUrl } from "@/shared/utils/browserSecurity";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart as RechartsLineChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import {
   ArrowLeft,
   Brain,
@@ -17,9 +27,11 @@ import {
   createSupplierAnalysis,
   type EquipmentAnalysisData,
   type SupplierAnalysisData,
+  type SupplierCompanyFinancialYear,
 } from "@/api/ai";
 
 import { Button } from "@/shared/ui/button";
+import { ChartContainer } from "@/shared/ui/chart";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +43,12 @@ import { cn } from "@/shared/utils/utils";
 import type { Supplier, SupplierReplyStatus } from "@/shared/types/rfq";
 
 import { SupplierTable } from "@/features/search/components/SupplierTable";
+import { QuoteAnalysisPanel } from "@/features/search/components/QuoteAnalysisPanel";
+import { calculateQuoteBenefitIndexFx, type BenefitIndexResponse, type BenefitIndexSuccess } from "@/api/quoteBenefitIndex";
+import type { QuoteComparisonSuccess } from "@/api/quoteComparison";
+import { getBenefitIndexOnce } from "@/features/search/quoteBenefitIndexFlow";
+import type { SupplierInnUpdate } from "@/api/quoteAnalysis";
+import { syncSupplierQuoteInn } from "@/features/search/quoteAnalysisFlow";
 
 import {
   downloadQuoteFile,
@@ -65,6 +83,238 @@ function hasQuoteEvidence(supplier?: Supplier | null): boolean {
       supplier.quote_source === "text" ||
       supplier.quote_source === "link" ||
       supplier.latest_reply?.is_quote
+  );
+}
+
+type FinancialTab = "results" | "balance";
+
+type FinancialChartPoint = {
+  year: number;
+  revenue: number | null;
+  profit: number | null;
+  assets: number | null;
+  equity: number | null;
+  payable: number | null;
+  cash: number | null;
+  inventories: number | null;
+};
+
+const RUB_FORMATTER = new Intl.NumberFormat("ru-RU");
+
+function toNullableNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sortedFinancialYears(
+  years: SupplierCompanyFinancialYear[] | undefined
+): SupplierCompanyFinancialYear[] {
+  return [...(years || [])]
+    .filter((item) => typeof item.year === "number" && Number.isFinite(item.year))
+    .sort((a, b) => a.year - b.year);
+}
+
+function formatRubExact(value: number | null | undefined): string {
+  const n = toNullableNumber(value);
+  return n === null ? "—" : `${RUB_FORMATTER.format(n)} ₽`;
+}
+
+function formatRubCompact(value: number | null | undefined): string {
+  const n = toNullableNumber(value);
+  if (n === null) return "—";
+
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) {
+    return `${(n / 1_000_000_000).toLocaleString("ru-RU", {
+      maximumFractionDigits: 1,
+    })} млрд ₽`;
+  }
+
+  if (abs >= 1_000_000) {
+    return `${(n / 1_000_000).toLocaleString("ru-RU", {
+      maximumFractionDigits: 1,
+    })} млн ₽`;
+  }
+
+  if (abs >= 1_000) {
+    return `${(n / 1_000).toLocaleString("ru-RU", {
+      maximumFractionDigits: 1,
+    })} тыс. ₽`;
+  }
+
+  return `${RUB_FORMATTER.format(n)} ₽`;
+}
+
+function formatAxisRub(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toLocaleString("ru-RU", {
+      maximumFractionDigits: 1,
+    })} млрд`;
+  }
+
+  if (abs >= 1_000_000) {
+    return `${(value / 1_000_000).toLocaleString("ru-RU", {
+      maximumFractionDigits: 0,
+    })} млн`;
+  }
+
+  if (abs >= 1_000) {
+    return `${(value / 1_000).toLocaleString("ru-RU", {
+      maximumFractionDigits: 0,
+    })} тыс.`;
+  }
+
+  return RUB_FORMATTER.format(value);
+}
+
+function mapFinancialChartPoints(
+  years: SupplierCompanyFinancialYear[]
+): FinancialChartPoint[] {
+  return years.map((item) => ({
+    year: item.year,
+    revenue: toNullableNumber(item.revenue_rub),
+    profit: toNullableNumber(item.net_profit_rub),
+    assets: toNullableNumber(item.assets_rub),
+    equity: toNullableNumber(item.equity_rub),
+    payable: toNullableNumber(item.accounts_payable_rub),
+    cash: toNullableNumber(item.cash_rub),
+    inventories: toNullableNumber(item.inventories_rub),
+  }));
+}
+
+function FinancialMetricCard({
+  label,
+  value,
+  year,
+}: {
+  label: string;
+  value: number | null | undefined;
+  year?: number | null;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-2.5">
+      <div className="text-xs text-white/45">{label}</div>
+      <div className="mt-1 text-base font-semibold leading-tight text-white">
+        {formatRubCompact(value)}
+      </div>
+      <div className="mt-1 text-xs text-white/40">{year || "—"}</div>
+    </div>
+  );
+}
+
+function FinancialDynamicsChart({
+  points,
+  activeTab,
+  onTabChange,
+}: {
+  points: FinancialChartPoint[];
+  activeTab: FinancialTab;
+  onTabChange: (tab: FinancialTab) => void;
+}) {
+  const series =
+    activeTab === "results"
+      ? [
+          { key: "revenue", label: "Выручка", color: "#38bdf8" },
+          { key: "profit", label: "Чистая прибыль", color: "#facc15" },
+        ]
+      : [
+          { key: "assets", label: "Активы", color: "#38bdf8" },
+          { key: "equity", label: "Капитал", color: "#34d399" },
+          { key: "payable", label: "Кредиторская задолженность", color: "#facc15" },
+          { key: "cash", label: "Денежные средства", color: "#a78bfa" },
+          { key: "inventories", label: "Запасы", color: "#fb7185" },
+        ];
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-[#0b1220]/70 p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-white/70">
+          Финансовая динамика
+        </div>
+
+        <div className="inline-flex rounded-lg border border-white/10 bg-black/20 p-0.5">
+          {(["results", "balance"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => onTabChange(tab)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-semibold transition",
+                activeTab === tab
+                  ? "bg-sky-400/15 text-sky-100"
+                  : "text-white/45 hover:text-white/80"
+              )}
+            >
+              {tab === "results" ? "Результаты" : "Баланс"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {points.length > 1 ? (
+        <ChartContainer
+          config={{}}
+          className="h-56 w-full aspect-auto text-white/55"
+        >
+          <RechartsLineChart
+            data={points}
+            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+          >
+            <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+            <XAxis
+              dataKey="year"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              stroke="rgba(255,255,255,0.45)"
+            />
+            <YAxis
+              width={44}
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              stroke="rgba(255,255,255,0.45)"
+              tickFormatter={(value) => formatAxisRub(Number(value))}
+            />
+            <Tooltip
+              cursor={{ stroke: "rgba(125,211,252,0.35)", strokeWidth: 1 }}
+              contentStyle={{
+                background: "#0f172a",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 8,
+                color: "#e5e7eb",
+              }}
+              labelFormatter={(label) => `Год: ${label}`}
+              formatter={(value, name) => [
+                formatRubExact(typeof value === "number" ? value : null),
+                name,
+              ]}
+            />
+            <Legend
+              wrapperStyle={{ color: "rgba(255,255,255,0.65)", fontSize: 11 }}
+              iconType="plainline"
+            />
+            {series.map((item) => (
+              <Line
+                key={item.key}
+                type="monotone"
+                dataKey={item.key}
+                name={item.label}
+                stroke={item.color}
+                strokeWidth={2}
+                dot={{ r: 3, strokeWidth: 1 }}
+                activeDot={{ r: 4 }}
+                connectNulls={false}
+              />
+            ))}
+          </RechartsLineChart>
+        </ChartContainer>
+      ) : (
+        <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 text-xs text-white/55">
+          Недостаточно исторических данных для динамики.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -188,6 +438,18 @@ function supplierEmailLabel(s: Supplier): string {
   }
 
   return "Email не найден";
+}
+
+function formatCompanyRegistrationDate(value?: string | null): string {
+  if (!value) return "—";
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (match) {
+    return `${match[3]}.${match[2]}.${match[1]}`;
+  }
+
+  return value;
 }
 
 function supplierRiskLabel(value?: string | null): string {
@@ -412,6 +674,7 @@ function SupplierAnalysisPanel({
   const [supplierAnalysisLoading, setSupplierAnalysisLoading] = useState(false);
   const [supplierAnalysisError, setSupplierAnalysisError] = useState<string | null>(null);
   const [supplierAnalysisCached, setSupplierAnalysisCached] = useState(false);
+  const [financialTab, setFinancialTab] = useState<FinancialTab>("results");
 
     const backendResultId = supplier?.backend_result_id;
 
@@ -495,6 +758,29 @@ function SupplierAnalysisPanel({
 }
 
   const hasSource = supplier.source_url && supplier.source_url !== "#";
+  const companyByInn = supplierAnalysis?.company_by_inn ?? null;
+  const isOfficialFnsCompany =
+    companyByInn?.source_type === "official_fns";
+  const financialYears = sortedFinancialYears(companyByInn?.financial_years);
+  const financialChartPoints = mapFinancialChartPoints(financialYears);
+  const latestFinancialYear =
+    financialYears.length > 0 ? financialYears[financialYears.length - 1] : null;
+  const localTax = companyByInn?.local_tax ?? null;
+  const profitFinancialYear =
+    financialYears.find((item) => item.year === localTax?.year) ||
+    latestFinancialYear;
+  const hasBfoFinancials = financialYears.length > 0;
+
+  const hasLocalTaxData =
+    localTax?.total_income_rub != null ||
+    localTax?.total_expenses_rub != null ||
+    localTax?.employee_count != null;
+
+  const hasStructuredCompanyData =
+    hasBfoFinancials || hasLocalTaxData;
+  const domainAssessment = supplierAnalysis?.domain_assessment?.trim() || "";
+  const strengths = supplierAnalysis?.strengths || [];
+  const dealAssessment = supplierAnalysis?.deal_assessment?.trim() || "";
 
   return (
     <aside className="h-full rounded-2xl border border-[#2d4059] bg-[#111827] p-4 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
@@ -558,8 +844,7 @@ function SupplierAnalysisPanel({
           </div>
         </div>
 
-<div className="grid grid-cols-2 gap-2">
-  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+<div className="rounded-xl border border-white/10 bg-black/20 p-3">
     <div className="mb-2 text-xs text-white/45">
       ИНН
     </div>
@@ -578,21 +863,6 @@ function SupplierAnalysisPanel({
       </div>
     )}
   </div>
-
-  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-    <div className="mb-2 text-xs text-white/45">
-      Индекс риска
-    </div>
-
-    <div className="text-sm font-semibold text-white">
-      API не подключен
-    </div>
-
-    <div className="mt-1 text-xs text-white/45">
-      После подключения источника данных здесь будет индекс риска
-    </div>
-  </div>
-</div>
 
         <div className="grid grid-cols-2 gap-2">
           <div
@@ -668,9 +938,9 @@ function SupplierAnalysisPanel({
 
         {hasSource && (
           <a
-            href={/^https?:\/\//i.test(supplier.source_url) ? supplier.source_url : `https://${supplier.source_url}`}
+            href={safeWebsiteUrl(supplier.source_url)}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#2f3a4d] bg-[#151f2d] px-3 py-2 text-sm font-semibold text-white transition hover:border-[#ffbf00] hover:bg-[#ffbf00] hover:text-[#2b2100]"
           >
             Открыть сайт
@@ -678,188 +948,267 @@ function SupplierAnalysisPanel({
           </a>
         )}
 
-        <div className="rounded-xl border border-sky-400/25 bg-sky-400/10 p-3 text-sky-100 shadow-[0_0_20px_rgba(56,189,248,0.10)]">
-  <div className="mb-2 flex items-center gap-2 font-semibold text-sky-100">
-    <Brain className="h-4 w-4 text-sky-300" />
-    AI-анализ
-  </div>
-
-  {supplierAnalysisLoading && (
-    <div className="text-sm">
-      AI анализирует поставщика по email, домену, статусам ответа и КП.
-    </div>
-  )}
-
-  {!supplierAnalysisLoading && supplierAnalysisError && (
-    <div className="text-sm text-red-200">
-      {supplierAnalysisError}
-    </div>
-  )}
-
-  {!supplierAnalysisLoading && !supplierAnalysisError && supplierAnalysis && (
-    <div className="space-y-3 text-sm">
-      <div
-        className={cn(
-          "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
-          supplierRiskClass(supplierAnalysis.risk_level)
-        )}
-      >
-        {supplierRiskLabel(supplierAnalysis.risk_level)}
-      </div>
-
-      <div className="rounded-lg border border-sky-300/15 bg-sky-950/25 p-2 text-sky-50/90">
-        {supplierAnalysis.summary}
-      </div>
-{supplierAnalysis.company_by_inn && (
-  <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-white/75">
-    <div className="mb-2 text-xs font-semibold text-white/70">
-      AI-справка по ИНН
-    </div>
-
-    {supplierAnalysis.company_by_inn.available ? (
-      <div className="space-y-2">
-        <div>
-          <div className="text-xs text-white/45">Компания</div>
-          <div className="font-semibold text-white">
-            {supplierAnalysis.company_by_inn.company_name || "—"}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <div className="text-xs text-white/45">ИНН</div>
-            <div>{supplierAnalysis.company_by_inn.inn || supplier.supplier_inn || "—"}</div>
-          </div>
-
-          <div>
-            <div className="text-xs text-white/45">Статус</div>
-            <div>{supplierAnalysis.company_by_inn.status || "—"}</div>
-          </div>
-        </div>
-
-        {supplierAnalysis.company_by_inn.registration_date && (
-          <div>
-            <div className="text-xs text-white/45">Дата регистрации</div>
-            <div>{supplierAnalysis.company_by_inn.registration_date}</div>
+        {supplierAnalysisLoading && (
+          <div className="rounded-xl border border-sky-400/25 bg-sky-400/10 p-3 text-sm text-sky-100 shadow-[0_0_20px_rgba(56,189,248,0.10)]">
+            AI анализирует данные поставщика, коммуникацию и официальные сведения компании по ИНН, если они доступны.
           </div>
         )}
 
-        {supplierAnalysis.company_by_inn.legal_address && (
-          <div>
-            <div className="text-xs text-white/45">Юридический адрес</div>
-            <div>{supplierAnalysis.company_by_inn.legal_address}</div>
+        {!supplierAnalysisLoading && supplierAnalysisError && (
+          <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-200">
+            {supplierAnalysisError}
           </div>
         )}
 
-        {supplierAnalysis.company_by_inn.director && (
-          <div>
-            <div className="text-xs text-white/45">Руководитель</div>
-            <div>{supplierAnalysis.company_by_inn.director}</div>
+        {!supplierAnalysisLoading && !supplierAnalysisError && supplierAnalysis && (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white/75">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="text-xs font-semibold text-white/70">
+            Данные компании по ИНН
           </div>
-        )}
-
-        {supplierAnalysis.company_by_inn.main_activity && (
-          <div>
-            <div className="text-xs text-white/45">Основной вид деятельности</div>
-            <div>{supplierAnalysis.company_by_inn.main_activity}</div>
-          </div>
-        )}
-
-        {supplierAnalysis.company_by_inn.financials?.length ? (
-          <div>
-            <div className="mb-1 text-xs font-semibold text-white/70">
-              Финансовые показатели
+          {isOfficialFnsCompany && (
+            <div className="rounded-md border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
+              ФНС / БФО ФНС
             </div>
-            <ul className="list-disc space-y-1 pl-5">
-              {supplierAnalysis.company_by_inn.financials.map((item, index) => (
-                <li key={`company-fin-${index}`}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+          )}
+        </div>
 
-        {supplierAnalysis.company_by_inn.reliability_notes?.length ? (
-          <div>
-            <div className="mb-1 text-xs font-semibold text-white/70">
-              Замечания по благонадёжности
+        {!supplier.supplier_inn ? (
+          <div className="text-white/60">
+            Укажите ИНН в таблице результатов, чтобы SmartOffer загрузил официальные данные компании и обновил анализ.
+          </div>
+        ) : companyByInn?.available ? (
+          <div className="space-y-2">
+            <div>
+              <div className="text-xs text-white/45">Компания</div>
+              <div className="font-semibold text-white">
+                {companyByInn.company_name || "—"}
+              </div>
             </div>
-            <ul className="list-disc space-y-1 pl-5">
-              {supplierAnalysis.company_by_inn.reliability_notes.map((item, index) => (
-                <li key={`company-rel-${index}`}>{item}</li>
-              ))}
-            </ul>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-xs text-white/45">ИНН</div>
+                <div>{companyByInn.inn || supplier.supplier_inn || "—"}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-white/45">Статус</div>
+                <div>{companyByInn.status || "—"}</div>
+              </div>
+            </div>
+
+            {companyByInn.registration_date && (
+              <div>
+                <div className="text-xs text-white/45">
+                  Дата регистрации
+                </div>
+                <div>
+                  {formatCompanyRegistrationDate(
+                    companyByInn.registration_date
+                  )}
+                </div>
+              </div>
+            )}
+
+            {companyByInn.legal_address && (
+              <div>
+                <div className="text-xs text-white/45">Юридический адрес</div>
+                <div>{companyByInn.legal_address}</div>
+              </div>
+            )}
+
+            {companyByInn.main_activity && (
+              <div>
+                <div className="text-xs text-white/45">Основной ОКВЭД / вид деятельности</div>
+                <div>{companyByInn.main_activity}</div>
+              </div>
+            )}
+
+            {isOfficialFnsCompany && !hasBfoFinancials && (
+              <div className="rounded-md border border-amber-300/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100/90">
+                {companyByInn.status === "Действует"
+                  ? "Компания зарегистрирована и действует, но бухгалтерская отчётность в БФО ФНС пока отсутствует. Финансовая оценка будет доступна после публикации отчётности."
+                  : "Бухгалтерская отчётность компании в БФО ФНС пока отсутствует. Финансовая оценка будет доступна после публикации отчётности."}
+              </div>
+            )}
+
+            {hasStructuredCompanyData ? (
+              <>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <FinancialMetricCard
+                    label="Доходы"
+                    value={localTax?.total_income_rub}
+                    year={localTax?.year}
+                  />
+                  <FinancialMetricCard
+                    label="Чистая прибыль"
+                    value={profitFinancialYear?.net_profit_rub}
+                    year={profitFinancialYear?.year}
+                  />
+                  <FinancialMetricCard
+                    label="Расходы"
+                    value={localTax?.total_expenses_rub}
+                    year={localTax?.year}
+                  />
+                </div>
+
+                {localTax?.employee_count != null ? (
+                  <div className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs text-white/65">
+                    ССЧР {localTax.year}: {localTax.employee_count}
+                  </div>
+                ) : null}
+
+                {financialYears.length > 0 ? (
+                  <FinancialDynamicsChart
+                    points={financialChartPoints}
+                    activeTab={financialTab}
+                    onTabChange={setFinancialTab}
+                  />
+                ) : (
+                  <div className="rounded-md border border-white/10 bg-white/[0.03] p-3 text-xs text-white/55">
+                    Недостаточно исторических данных для динамики.
+                  </div>
+                )}
+              </>
+            ) : companyByInn.financials?.length ? (
+              <div>
+                <div className="mb-1 text-xs font-semibold text-white/70">
+                  Финансовые показатели
+                </div>
+                <ul className="list-disc space-y-1 pl-5">
+                  {companyByInn.financials.map((item, index) => (
+                    <li key={`company-fin-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {!localTax && companyByInn.reliability_notes?.length ? (
+              <div>
+                <div className="mb-1 text-xs font-semibold text-white/70">
+                  ССЧР / замечания по данным ФНС
+                </div>
+                <ul className="list-disc space-y-1 pl-5">
+                  {companyByInn.reliability_notes.map((item, index) => (
+                    <li key={`company-rel-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {isOfficialFnsCompany && (
+              <div className="mt-3 rounded-md border border-sky-300/15 bg-sky-950/25 p-2 text-xs text-sky-100/80">
+                Сведения о компании получены из официальных источников ФНС и БФО ФНС. Связь найденного сайта и email с указанным ИНН оценивается отдельно.
+              </div>
+            )}
           </div>
-        ) : null}
-      </div>
-    ) : (
-      <div className="text-white/60">
-        {supplierAnalysis.company_by_inn.limitations ||
-          "По указанному ИНН не удалось сформировать справку."}
-      </div>
-    )}
-
-    <div className="mt-3 rounded-md border border-[#ffbf00]/20 bg-[#ffbf00]/10 p-2 text-xs text-[#ffdf72]">
-      Справка сформирована AI по ИНН и может быть неактуальной. После подключения официального источника данных здесь будет платная проверка и индекс риска.
-    </div>
-  </div>
-)}
-
-      <div>
-        <div className="mb-1 text-xs font-semibold text-white/70">
-          Контакт
-        </div>
-        <div className="text-white/70">
-          {supplierAnalysis.contact_quality}
-        </div>
-      </div>
-
-      <div>
-        <div className="mb-1 text-xs font-semibold text-white/70">
-          Домен
-        </div>
-        <div className="text-white/70">
-          {supplierAnalysis.domain_assessment}
-        </div>
-      </div>
-
-      {supplierAnalysis.risk_factors?.length > 0 && (
-        <div>
-          <div className="mb-1 text-xs font-semibold text-white/70">
-            Риски
+        ) : (
+          <div className="space-y-2 text-white/60">
+            <div>
+              Официальные данные компании по указанному ИНН недоступны для текущего анализа.
+            </div>
+            {companyByInn?.limitations && (
+              <div className="text-xs text-white/45">
+                {companyByInn.limitations}
+              </div>
+            )}
           </div>
-          <ul className="list-disc space-y-1 pl-5 text-white/70">
-            {supplierAnalysis.risk_factors.map((item, index) => (
-              <li key={`supplier-risk-${index}`}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
+            </div>
 
-      {supplierAnalysis.recommended_actions?.length > 0 && (
-        <div>
-          <div className="mb-1 text-xs font-semibold text-white/70">
-            Что сделать
+            <div className="rounded-xl border border-sky-400/25 bg-sky-400/10 p-3 text-sm text-sky-100 shadow-[0_0_20px_rgba(56,189,248,0.10)]">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-semibold text-sky-100">
+                  <Brain className="h-4 w-4 text-sky-300" />
+                  AI-анализ
+                </div>
+
+                <div
+                  className={cn(
+                    "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
+                    supplierRiskClass(supplierAnalysis.risk_level)
+                  )}
+                >
+                  {supplierRiskLabel(supplierAnalysis.risk_level)}
+                </div>
+              </div>
+
+              {supplierAnalysis.summary?.trim() && (
+                <div>
+                  <div className="mb-1 text-xs font-semibold text-white/70">
+                    Краткий вывод
+                  </div>
+                  <div className="text-white/75">
+                    {supplierAnalysis.summary}
+                  </div>
+                </div>
+              )}
+
+              {strengths.length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-1 text-xs font-semibold text-white/70">
+                    Сильные стороны
+                  </div>
+                  <ul className="space-y-1 text-white/70">
+                    {strengths.map((item, index) => (
+                      <li key={`supplier-strength-${index}`} className="flex gap-2">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {supplierAnalysis.risk_factors?.length > 0 ? (
+                <div className="mt-3">
+                  <div className="mb-1 text-xs font-semibold text-white/70">
+                    Риски
+                  </div>
+                  <ul className="space-y-1 text-white/70">
+                    {supplierAnalysis.risk_factors.map((item, index) => (
+                      <li key={`supplier-risk-${index}`} className="flex gap-2">
+                        <span className="mt-[0.35rem] h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffbf00]/80" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : supplierAnalysis.risk_level === "low" ? (
+                <div className="mt-3 text-white/60">
+                  Существенных факторов риска не выявлено.
+                </div>
+              ) : null}
+
+              {dealAssessment && (
+                <div className="mt-3 rounded-lg border border-sky-300/15 bg-sky-950/25 p-2 text-white/75">
+                  <div className="mb-1 text-xs font-semibold text-white/70">
+                    Оценка для сделки
+                  </div>
+                  <div>{dealAssessment}</div>
+                </div>
+              )}
+
+              {domainAssessment && (
+                <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] p-2 text-xs text-white/65">
+                  {domainAssessment}
+                </div>
+              )}
+
+              <div className="mt-3 text-xs text-white/40">
+                {supplierAnalysisCached ? "Сохранённый AI-анализ" : "AI-анализ сохранён"}
+              </div>
+            </div>
           </div>
-          <ul className="list-disc space-y-1 pl-5 text-white/70">
-            {supplierAnalysis.recommended_actions.map((item, index) => (
-              <li key={`supplier-action-${index}`}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
 
-      <div className="text-xs text-white/40">
-        {supplierAnalysisCached ? "Сохранённый AI-анализ" : "AI-анализ сохранён"}
-      </div>
-    </div>
-  )}
-
-  {!supplierAnalysisLoading && !supplierAnalysisError && !supplierAnalysis && (
-    <div className="text-sm">
-      AI-анализ появится после выбора поставщика.
-    </div>
-  )}
-</div>
+        {!supplierAnalysisLoading && !supplierAnalysisError && !supplierAnalysis && (
+          <div className="rounded-xl border border-sky-400/25 bg-sky-400/10 p-3 text-sm text-sky-100">
+            AI-анализ появится после выбора поставщика.
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -868,6 +1217,8 @@ function SupplierAnalysisPanel({
 export default function RequestDetailPage() {
   const { jobId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const historySearch = typeof location.state?.historySearch === "string" ? location.state.historySearch : "";
   const { toast } = useToast();
 
   const numericJobId = Number(jobId);
@@ -878,6 +1229,35 @@ export default function RequestDetailPage() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [comparison, setComparison] = useState<QuoteComparisonSuccess | null>(null);
+  const comparisonRef = useRef<QuoteComparisonSuccess | null>(null);
+  const [benefitIndex, setBenefitIndex] = useState<BenefitIndexSuccess | null>(null);
+  const benefitRequests = useRef(new Map<string, Promise<BenefitIndexResponse>>());
+  const onComparisonChange = useCallback((value: QuoteComparisonSuccess | null) => {
+    comparisonRef.current = value;
+    setComparison(value);
+  }, []);
+  useEffect(() => {
+    if (!comparison || comparison.job_id !== numericJobId) {
+      setBenefitIndex(null);
+      return;
+    }
+    setBenefitIndex(null);
+    let cancelled = false;
+    getBenefitIndexOnce(numericJobId, comparison.comparison_id, benefitRequests.current)
+      .then(value => { if (!cancelled && value.ok && value.comparison_id === comparison.comparison_id) setBenefitIndex(value); })
+      .catch(() => { if (!cancelled) setBenefitIndex(null); });
+    return () => { cancelled = true; };
+  }, [comparison, numericJobId]);
+  const onBenefitFxCalculate = useCallback(async (rates: Record<string, string>) => {
+    if (!comparison || comparison.job_id !== numericJobId) return;
+    const value = await calculateQuoteBenefitIndexFx(numericJobId, rates);
+    if (value.ok && value.comparison_id === comparisonRef.current?.comparison_id) setBenefitIndex(value);
+  }, [comparison, numericJobId]);
+  const quoteSuppliers = useMemo(() => suppliers.filter(s => hasQuoteEvidence(s) && s.backend_result_id), [suppliers]);
+  const syncQuoteInn = useCallback((resultId: number, update: SupplierInnUpdate) => {
+    setSuppliers(current => syncSupplierQuoteInn(current, resultId, update));
+  }, []);
 
   const selectedSupplier = useMemo(() => {
     return suppliers.find((s) => s.id === selectedSupplierId) || suppliers[0] || null;
@@ -1170,7 +1550,7 @@ async function handleOpenQuoteFile(
   supplierId: string,
   backendResultId: number
 ) {
-  const tab = window.open("about:blank", "_blank");
+  const tab = preopenDownloadTab();
 
   try {
     const replies = await getResultReplies(backendResultId);
@@ -1255,7 +1635,7 @@ async function handleOpenQuoteFile(
   <Button
     type="button"
     variant="outline"
-    onClick={() => navigate("/history")}
+    onClick={() => navigate(historySearch ? `/history?${historySearch}` : "/history")}
     className="
       h-10
       border-[#2f3a4d]
@@ -1369,6 +1749,7 @@ async function handleOpenQuoteFile(
               <div className="rounded-xl border border-white/10">
                 <SupplierTable
                   suppliers={suppliers}
+                  benefitIndexItems={benefitIndex?.items || []}
                   onToggleSelect={() => {}}
                   onDelete={() => {}}
                   onAdd={() => {}}
@@ -1384,6 +1765,9 @@ async function handleOpenQuoteFile(
                   onMarkSupplierDialogRead={handleMarkSupplierDialogRead}
                 />
               </div>
+              <QuoteAnalysisPanel key={numericJobId} jobId={numericJobId} suppliers={quoteSuppliers}
+                onInnSync={syncQuoteInn} onComparisonChange={onComparisonChange}
+                benefitIndex={benefitIndex} onBenefitFxCalculate={onBenefitFxCalculate} />
             </section>
 
             <div className="min-h-[420px] min-w-0 xl:min-h-0">
