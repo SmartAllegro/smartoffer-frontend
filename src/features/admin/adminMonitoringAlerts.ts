@@ -13,6 +13,7 @@ const names: Record<string,string> = {
   api:"API", postgresql:"PostgreSQL", redis:"Redis", search_worker:"Search Worker",
   mail_sync_worker:"Mail Worker", mail_scheduler:"Mail Scheduler", caddy:"Caddy",
   search:"Search", mail_sync:"Mail Sync", vm:"VM",
+  host_resources:"Ресурсы VM", backup:"Резервирование",
 };
 const fallback: Record<string,string> = {
   postgresql:"Проверка PostgreSQL не прошла.", redis:"Проверка Redis не прошла.",

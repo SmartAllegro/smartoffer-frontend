@@ -64,7 +64,29 @@ test("loading, error, unknown, healthy, warning and critical are visible", () =>
   assert.match(rendered,/Сбой/);
   assert.match(rendered,/Внимание/);
   assert.match(rendered,/Не проверялось/);
-  assert.match(rendered,/ожидается источник телеметрии VM/);
+  assert.match(rendered,/Источник телеметрии VM не подключён/);
   data.generated_at="2020-01-01T00:00:00Z";
   assert.match(textOf(view({data}).tree),/Снимок устарел/);
+});
+
+test("history-only failures and healthy VM resources stay visually separated", () => {
+  const data = {generated_at:new Date().toISOString(), components:[
+    {id:"api",state:"healthy",metric:"Обработчик ответил"},
+    {id:"mail_scheduler",state:"healthy"}, {id:"caddy",state:"healthy"},
+  ], queues:[{id:"mail_sync",state:"healthy",pending:0,started:0,failed:247,
+    fresh_failed:0,workers_active:1,workers_registered:1}], events:[],
+    search_failed_15m:0,search_failed_24h:3,
+    mail_sync_failed_attempts_15m:0,mail_sync_failed_attempts_24h:245,
+    mail_sync_unique_failed_states_15m:0,mail_sync_unique_failed_states_24h:12,
+    mail_sync_current_error_states:0,mail_sync_active_backoff_states:0,
+    vm:{state:"healthy",cpu_pct:12.4,ram_pct:38.1,disk_pct:41,free_disk_bytes:10737418240,
+      snapshot_age_seconds:15,backup_state:"healthy",backup_age_seconds:120,
+      integrity_state:"healthy",retention_state:"healthy",restore_smoke_state:"healthy",
+      full_dr_state:"unknown",backup_confirmed_at:new Date().toISOString()},
+  };
+  const rendered=textOf(view({data}).tree);
+  assert.match(rendered,/Mail Sync failures:\s+245\s+· свежие за 15 мин:\s+0/);
+  assert.match(rendered,/Ошибки за 15 мин:\s+0\s+· История RQ:\s+247/);
+  assert.match(rendered,/CPU:\s+12.4\s+%/);
+  assert.match(rendered,/full DR:\s+Не проверялось/);
 });
