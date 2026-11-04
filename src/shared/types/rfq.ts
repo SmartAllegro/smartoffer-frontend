@@ -52,6 +52,7 @@ export interface Supplier {
   reply_status?: SupplierReplyStatus | string;
   quote_source?: SupplierQuoteSource | string | null;
   quote_file_count?: number;
+  has_quote?: boolean;
   supplier_replies_count?: number;
   unread_supplier_replies_count?: number;
   last_reply_at?: Date | null;

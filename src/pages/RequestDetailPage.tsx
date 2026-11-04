@@ -53,7 +53,6 @@ import { syncSupplierQuoteInn } from "@/features/search/quoteAnalysisFlow";
 import {
   downloadQuoteFile,
   getHistoryDetail,
-  getResultReplies,
   markResultRepliesRead,
   setQuoteReceived,
   updateResultReplyStatus,
@@ -73,17 +72,7 @@ function normalizeNumber(value: unknown): number {
 }
 
 function hasQuoteEvidence(supplier?: Supplier | null): boolean {
-  if (!supplier) return false;
-
-  return Boolean(
-    supplier.quote_received ||
-      supplier.reply_status === "quote_received" ||
-      normalizeNumber(supplier.quote_file_count) > 0 ||
-      supplier.quote_source === "attachment" ||
-      supplier.quote_source === "text" ||
-      supplier.quote_source === "link" ||
-      supplier.latest_reply?.is_quote
-  );
+  return Boolean(supplier?.has_quote);
 }
 
 type FinancialTab = "results" | "balance";
@@ -385,6 +374,7 @@ function mapResultsToSuppliers(
       reply_status: r?.reply_status || "no_reply",
       quote_source: r?.quote_source || null,
       quote_file_count: normalizeNumber(r?.quote_file_count),
+      has_quote: Boolean(r?.has_quote),
       supplier_replies_count: normalizeNumber(r?.supplier_replies_count),
       unread_supplier_replies_count: normalizeNumber(r?.unread_supplier_replies_count),
       last_reply_at: r?.last_reply_at ? new Date(r.last_reply_at) : null,
@@ -1343,6 +1333,7 @@ export default function RequestDetailPage() {
                   (res.quote_received ? "quote_received" : "no_reply"),
                 quote_source: res.quote_source || null,
                 quote_file_count: normalizeNumber(res.quote_file_count),
+                has_quote: Boolean(res.has_quote),
                 last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
               }
             : s
@@ -1399,6 +1390,7 @@ export default function RequestDetailPage() {
                   : null,
                 quote_source: res.quote_source || null,
                 quote_file_count: normalizeNumber(res.quote_file_count),
+                has_quote: Boolean(res.has_quote),
                 last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
               }
             : s
@@ -1502,10 +1494,9 @@ async function handleUpdateSupplierInn(
           ? {
               ...s,
               reply_status: "quote_received",
-              quote_received: true,
-              quote_received_at: new Date(),
               quote_source: "attachment",
               quote_file_count: normalizeNumber(s.quote_file_count) + 1,
+              has_quote: true,
             }
           : s
       )
@@ -1526,6 +1517,7 @@ async function handleUpdateSupplierInn(
                   : null,
                 quote_source: res.quote_source || "attachment",
                 quote_file_count: normalizeNumber(res.quote_file_count),
+                has_quote: Boolean(res.has_quote),
                 last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
               }
             : s
@@ -1548,23 +1540,16 @@ async function handleUpdateSupplierInn(
 
 async function handleOpenQuoteFile(
   supplierId: string,
-  backendResultId: number
+  backendResultId: number,
+  fileId: number
 ) {
   const tab = preopenDownloadTab();
 
   try {
-    const replies = await getResultReplies(backendResultId);
-
-    const attachments = (replies.items || [])
-      .flatMap((reply) => reply.attachments || [])
-      .filter((file) => typeof file.id === "number");
-
-    if (!attachments.length) {
-      throw new Error("Файл КП не найден. Попробуйте обновить страницу.");
+    if (!supplierId || !backendResultId || !fileId) {
+      throw new Error("Файл КП не выбран.");
     }
-
-    const file = attachments[0];
-    const downloaded = await downloadQuoteFile(file.id);
+    const downloaded = await downloadQuoteFile(fileId);
 
     const url = URL.createObjectURL(downloaded.blob);
 
@@ -1761,7 +1746,7 @@ async function handleOpenQuoteFile(
                   onSetReplyStatus={handleSetReplyStatus}
                   onUpdateSupplierInn={handleUpdateSupplierInn}
                   onUploadQuoteFile={handleUploadQuoteFile}
-                  onOpenQuoteFile={handleOpenQuoteFile}
+                  onOpenQuoteFile={scope === "personal" ? handleOpenQuoteFile : undefined}
                   onMarkSupplierDialogRead={handleMarkSupplierDialogRead}
                 />
               </div>

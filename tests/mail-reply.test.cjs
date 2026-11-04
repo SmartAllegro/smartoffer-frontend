@@ -41,7 +41,8 @@ test("sendSupplierReply posts inherited or explicit signature ID through apiFetc
   assert.deepEqual({ ...calls[1][1].json }, { body: "Ответ", signature_id: 7 });
 });
 
-function createTableHarness({ historyScope = "personal", replies = [], send, signatures = [], signatureLoadError = false } = {}) {
+function createTableHarness({ historyScope = "personal", replies = [], send, signatures = [], signatureLoadError = false,
+  supplierOverrides = {}, onOpenQuoteFile } = {}) {
   const state = [];
   const refs = [];
   const toasts = [];
@@ -60,6 +61,7 @@ function createTableHarness({ historyScope = "personal", replies = [], send, sig
     created_at: new Date("2026-01-01T00:00:00Z"),
     backend_result_id: 42,
     supplier_replies_count: 1,
+    ...supplierOverrides,
   };
   const ui = () => null;
   const module = { exports: {} };
@@ -136,6 +138,7 @@ function createTableHarness({ historyScope = "personal", replies = [], send, sig
       onToggleSelect: () => {},
       onDelete: () => {},
       onAdd: () => {},
+      onOpenQuoteFile,
     });
   }
   return { supplier, render, toasts, requests, signatureLoads };
@@ -226,6 +229,60 @@ test("dialog labels every document type and retains the Open action", async () =
     assert.ok(action(tree, "Открыть"));
     assert.doesNotMatch(textContent(tree), /technical_document|unknown_document|other_document/);
   }
+});
+
+test("dialog card color depends only on author direction", async () => {
+  for (const [reply, expected, forbidden] of [
+    [{ ...supplierReply, direction: "user", status: "declined" }, "bg-emerald-500/5", "bg-blue-500/5"],
+    [{ ...supplierReply, direction: "supplier", status: "quote_received" }, "bg-blue-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, direction: "supplier", status: "clarification_requested" }, "bg-blue-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, direction: "system", source: "system", status: "quote_received" }, "bg-muted/20", "bg-blue-500/5"],
+  ]) {
+    const tree = await openDialog(createTableHarness({ replies: [reply] }));
+    const card = findNode(tree, (node) => String(node.props.className || "").includes("rounded-xl border p-4"));
+    assert.ok(card);
+    assert.match(card.props.className, new RegExp(expected.replaceAll("/", "\\/")));
+    assert.doesNotMatch(card.props.className, new RegExp(forbidden.replaceAll("/", "\\/")));
+  }
+});
+
+test("quote button filters non-quotes and offers every quote file", async () => {
+  const opened = [];
+  const replies = [{ ...supplierReply, attachments: [
+    { id: 11, original_filename: "datasheet.pdf", detected_type: "technical_document", size_bytes: 100 },
+    { id: 12, original_filename: "offer-a.pdf", detected_type: "quote", size_bytes: 200 },
+    { id: 13, original_filename: "offer-b.pdf", detected_type: "quote", size_bytes: 300 },
+  ] }];
+  const harness = createTableHarness({
+    replies,
+    supplierOverrides: { has_quote: true, quote_file_count: 2 },
+    onOpenQuoteFile: (...args) => opened.push(args),
+  });
+  const opener = action(harness.render(), "КП: 2");
+  assert.ok(opener);
+  opener.props.onClick(event);
+  await tick();
+  const chooser = harness.render();
+  assert.match(textContent(chooser), /offer-a\.pdf/);
+  assert.match(textContent(chooser), /offer-b\.pdf/);
+  assert.doesNotMatch(textContent(chooser), /datasheet\.pdf/);
+  const openButtons = [];
+  walk(chooser, (node) => {
+    if (typeof node.props.onClick === "function" && textContent(node).trim() === "Открыть") openButtons.push(node);
+  });
+  assert.equal(openButtons.length, 2);
+  openButtons[1].props.onClick();
+  assert.deepEqual(opened[0], ["supplier-1", 42, 13]);
+});
+
+test("text quote shows state without a fake file button", () => {
+  const harness = createTableHarness({
+    supplierOverrides: { has_quote: true, quote_source: "text", quote_file_count: 0 },
+    onOpenQuoteFile: () => assert.fail("must not open a file"),
+  });
+  const tree = harness.render();
+  assert.match(textContent(tree), /КП текстом/);
+  assert.equal(action(tree, "Открыть КП"), undefined);
 });
 
 function openComposer(harness, tree) {

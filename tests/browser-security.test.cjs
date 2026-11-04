@@ -80,7 +80,8 @@ test("complete active markup/navigation inventory", () => {
   // Only chart caller supplies an empty compile-time config, never API strings.
   assert.match(read("src/pages/RequestDetailPage.tsx"), /<ChartContainer\s+config=\{\{\}\}/);
   for (const file of ["src/pages/HistoryPage.tsx", "src/pages/RequestDetailPage.tsx"]) {
-    assert.match(read(file), /const tab = preopenDownloadTab\(\);\s+try\s*\{\s+const replies = await/);
+    assert.match(read(file), /const tab = preopenDownloadTab\(\);\s+try\s*\{\s+if \(!supplierId \|\| !backendResultId \|\| !fileId\)/);
+    assert.match(read(file), /downloadQuoteFile\(fileId\)/);
     assert.match(read(file), /link\.rel = "noopener noreferrer"/);
   }
   for (const file of ["src/pages/RequestDetailPage.tsx", "src/features/search/components/SupplierTable.tsx", "src/features/address-book/components/AddressBookModal.tsx"]) assert.match(read(file), /safeWebsiteUrl\(/);

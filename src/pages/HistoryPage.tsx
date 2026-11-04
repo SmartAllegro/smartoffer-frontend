@@ -47,7 +47,6 @@ import {
   downloadQuoteFile,
   getHistoryDetail,
   getHistoryStats,
-  getResultReplies,
   listHistory,
   markAllRepliesRead,
   markResultRepliesRead,
@@ -1368,9 +1367,7 @@ useEffect(() => {
     async (supplierId: string, backendResultId: number, next: boolean) => {
       const prevSuppliers = detailSuppliers;
       const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
-      const wasReceived = Boolean(prevSupplier?.quote_received);
-
-      const delta = wasReceived === next ? 0 : next ? 1 : -1;
+      const wasHasQuote = Boolean(prevSupplier?.has_quote);
 
       setDetailSuppliers((cur) =>
         cur.map((s) =>
@@ -1386,6 +1383,7 @@ useEffect(() => {
 
       try {
         const res = await setQuoteReceived(backendResultId, next);
+        const delta = Number(Boolean(res.has_quote)) - Number(wasHasQuote);
 
 setDetailSuppliers((cur) =>
   cur.map((s) =>
@@ -1401,6 +1399,7 @@ setDetailSuppliers((cur) =>
             (res.quote_received ? "quote_received" : "no_reply"),
           quote_source: res.quote_source || null,
           quote_file_count: normalizeNumber(res.quote_file_count),
+          has_quote: Boolean(res.has_quote),
           last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
         }
       : s
@@ -1439,9 +1438,7 @@ const handleSetReplyStatus = useCallback(
   async (supplierId: string, backendResultId: number, status: ReplyStatus) => {
     const prevSuppliers = detailSuppliers;
     const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
-    const wasReceived = Boolean(prevSupplier?.quote_received);
-    const nextReceived = wasReceived;
-    const delta = 0;
+    const wasHasQuote = Boolean(prevSupplier?.has_quote);
 
     setDetailSuppliers((cur) =>
       cur.map((s) =>
@@ -1463,6 +1460,7 @@ const handleSetReplyStatus = useCallback(
         quote_source: status === "quote_received" ? "manual" : null,
         comment: null,
       });
+      const delta = Number(Boolean(res.has_quote)) - Number(wasHasQuote);
 
       setDetailSuppliers((cur) =>
         cur.map((s) =>
@@ -1474,6 +1472,7 @@ const handleSetReplyStatus = useCallback(
                 quote_received_at: s.quote_received_at,
                 quote_source: res.quote_source || null,
                 quote_file_count: normalizeNumber(res.quote_file_count),
+                has_quote: Boolean(res.has_quote),
                 last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
               }
             : s
@@ -1509,22 +1508,14 @@ const handleSetReplyStatus = useCallback(
 );
 
 const handleOpenQuoteFile = useCallback(
-  async (supplierId: string, backendResultId: number) => {
+  async (supplierId: string, backendResultId: number, fileId: number) => {
     const tab = preopenDownloadTab();
 
     try {
-      const replies = await getResultReplies(backendResultId);
-
-      const attachments = (replies.items || [])
-        .flatMap((reply) => reply.attachments || [])
-        .filter((file) => typeof file.id === "number");
-
-      if (!attachments.length) {
-        throw new Error("Файл КП не найден. Попробуйте обновить историю.");
+      if (!supplierId || !backendResultId || !fileId) {
+        throw new Error("Файл КП не выбран.");
       }
-
-      const file = attachments[0];
-      const downloaded = await downloadQuoteFile(file.id);
+      const downloaded = await downloadQuoteFile(fileId);
 
       const url = URL.createObjectURL(downloaded.blob);
 
@@ -1643,7 +1634,7 @@ const handleUploadQuoteFile = useCallback(
   async (supplierId: string, backendResultId: number, file: File) => {
     const prevSuppliers = detailSuppliers;
     const prevSupplier = detailSuppliers.find((s) => s.id === supplierId);
-    const wasReceived = Boolean(prevSupplier?.quote_received);
+    const wasHasQuote = Boolean(prevSupplier?.has_quote);
 
     const maxBytes = 20 * 1024 * 1024;
     if (file.size > maxBytes) {
@@ -1661,10 +1652,9 @@ const handleUploadQuoteFile = useCallback(
           ? {
               ...s,
               reply_status: "quote_received",
-              quote_received: true,
-              quote_received_at: new Date(),
               quote_source: "attachment",
               quote_file_count: normalizeNumber(s.quote_file_count) + 1,
+              has_quote: true,
             }
           : s
       )
@@ -1685,13 +1675,14 @@ const handleUploadQuoteFile = useCallback(
                   : null,
                 quote_source: res.quote_source || "attachment",
                 quote_file_count: normalizeNumber(res.quote_file_count),
+                has_quote: Boolean(res.has_quote),
                 last_reply_at: res.last_reply_at ? new Date(res.last_reply_at) : null,
               }
             : s
         )
       );
 
-      if (detailJobId && !wasReceived) {
+      if (detailJobId && !wasHasQuote && res.has_quote) {
         setItems((current) =>
           current.map((item) =>
             item.id === detailJobId

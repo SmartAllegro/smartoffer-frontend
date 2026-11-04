@@ -52,6 +52,7 @@ const supplier = (id, quote = false, inn = null) => ({
   id: `supplier-${id}`, backend_result_id: id, supplier_name: `Поставщик ${id}`,
   supplier_inn: inn, source_url: "", contact: "", contact_label: "Контакт через сайт",
   status: "found", selected: false, reply_status: quote ? "quote_received" : "no_reply", quote_received: quote,
+  has_quote: quote,
 });
 const benefit = (id, total = "7.4", financial = "2", reasons = []) => ({
   result_id: id, status: "ready", total_score: total, reason_codes: reasons,

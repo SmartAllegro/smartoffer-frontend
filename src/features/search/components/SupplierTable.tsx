@@ -117,7 +117,8 @@ interface SupplierTableProps {
 
   onOpenQuoteFile?: (
     supplierId: string,
-    backendResultId: number
+    backendResultId: number,
+    fileId: number
   ) => void | Promise<void>;
 
   onMarkSupplierDialogRead?: (
@@ -208,22 +209,10 @@ function replyCardClass(reply: SupplierReplyItem): string {
   }
 
   if (direction === "user") {
-    return "border-blue-500/30 bg-blue-500/5";
-  }
-
-  if (reply.message_type === "quote" || reply.status === "quote_received") {
     return "border-emerald-500/30 bg-emerald-500/5";
   }
 
-  if (reply.status === "clarification_requested") {
-    return "border-blue-500/30 bg-blue-500/5";
-  }
-
-  if (reply.status === "declined") {
-    return "border-red-500/30 bg-red-500/5";
-  }
-
-  return "border-emerald-500/30 bg-emerald-500/5";
+  return "border-blue-500/30 bg-blue-500/5";
 }
 
 function fileSizeLabel(sizeBytes?: number | null): string {
@@ -255,15 +244,7 @@ function supplierDialogBadgeText(count: number): string {
 }
 
 function hasQuoteEvidence(supplier: Supplier): boolean {
-  return Boolean(
-    supplier.quote_received ||
-      supplier.reply_status === "quote_received" ||
-      Number(supplier.quote_file_count || 0) > 0 ||
-      supplier.quote_source === "attachment" ||
-      supplier.quote_source === "text" ||
-      supplier.quote_source === "link" ||
-      supplier.latest_reply?.is_quote
-  );
+  return Boolean(supplier.has_quote);
 }
 
 function SupplierStatusBadge({
@@ -429,11 +410,8 @@ function quoteSourceLabel(source?: string | null): string {
 function quoteStatusText(supplier: Supplier): string {
   const fileCount = Number(supplier.quote_file_count || 0);
 
-  if (
-    supplier.quote_received ||
-    supplier.reply_status === "quote_received"
-  ) {
-    return `Файлов: ${fileCount}`;
+  if (supplier.has_quote) {
+    return fileCount > 0 ? `Файлов: ${fileCount}` : "КП текстом";
   }
 
   if (supplier.reply_status === "declined") {
@@ -549,6 +527,9 @@ export function SupplierTable({
   const [dialogReplies, setDialogReplies] = useState<SupplierReplyItem[]>([]);
   const [dialogLoading, setDialogLoading] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [quoteChooserOpen, setQuoteChooserOpen] = useState(false);
+  const [quoteChooserSupplier, setQuoteChooserSupplier] = useState<Supplier | null>(null);
+  const [quoteChooserFiles, setQuoteChooserFiles] = useState<ReplyAttachmentItem[]>([]);
   const [replyComposerOpen, setReplyComposerOpen] = useState(false);
   const [replyDraft, setReplyDraft] = useState("");
   const [replySending, setReplySending] = useState(false);
@@ -780,6 +761,35 @@ async function openSupplierDialog(supplier: Supplier) {
     );
   } finally {
     setDialogLoading(false);
+  }
+}
+
+async function openQuoteAttachments(supplier: Supplier) {
+  if (!supplier.backend_result_id || !onOpenQuoteFile) return;
+  try {
+    const response = historyScope === "team"
+      ? await getTeamResultReplies(supplier.backend_result_id)
+      : await getResultReplies(supplier.backend_result_id);
+    const quoteFiles = (response.items || [])
+      .flatMap((reply) => reply.attachments || [])
+      .filter((file) => file.detected_type === "quote" && typeof file.id === "number");
+    if (!quoteFiles.length) {
+      throw new Error("Файл КП не найден. Попробуйте обновить страницу.");
+    }
+    if (quoteFiles.length === 1) {
+      const [onlyQuote] = quoteFiles;
+      await onOpenQuoteFile(supplier.id, supplier.backend_result_id, onlyQuote.id);
+      return;
+    }
+    setQuoteChooserSupplier(supplier);
+    setQuoteChooserFiles(quoteFiles);
+    setQuoteChooserOpen(true);
+  } catch (error) {
+    toast({
+      title: "Не удалось открыть КП",
+      description: error instanceof Error ? error.message : "Ошибка",
+      variant: "destructive",
+    });
   }
 }
 
@@ -1019,8 +1029,7 @@ const uploadQuoteDisabled =
                                 event.preventDefault();
                                 event.stopPropagation();
 
-                                if (!backendId || typeof onOpenQuoteFile !== "function") return;
-                                void onOpenQuoteFile(supplier.id, backendId);
+                                void openQuoteAttachments(supplier);
                               }}
                               className="
                                 inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
@@ -1031,7 +1040,7 @@ const uploadQuoteDisabled =
                               title="Открыть файл КП"
                             >
                               <ExternalLink className="h-3.5 w-3.5" />
-                              Открыть КП
+                              {quoteFileCount > 1 ? `КП: ${quoteFileCount}` : "Открыть КП"}
                             </button>
                           ) : null}
 
@@ -1440,9 +1449,7 @@ const uploadQuoteDisabled =
         <div
           className={cn(
             "min-w-0 truncate text-[11px]",
-            supplier.quote_received ||
-              supplier.reply_status ===
-                "quote_received"
+            supplier.has_quote
               ? "text-emerald-300"
               : supplier.reply_status ===
                   "in_progress"
@@ -1490,8 +1497,7 @@ const uploadQuoteDisabled =
                 event.preventDefault();
                 event.stopPropagation();
 
-                if (!backendId || typeof onOpenQuoteFile !== "function") return;
-                void onOpenQuoteFile(supplier.id, backendId);
+                void openQuoteAttachments(supplier);
               }}
               className="
                 inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md
@@ -1502,7 +1508,7 @@ const uploadQuoteDisabled =
               title="Открыть файл КП"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              Открыть КП
+              {quoteFileCount > 1 ? `КП: ${quoteFileCount}` : "Открыть КП"}
             </button>
           ) : null}
 
@@ -1654,6 +1660,45 @@ const uploadQuoteDisabled =
         onOpenChange={setErrorModalOpen}
         supplier={selectedErrorSupplier}
       />
+      <Dialog open={quoteChooserOpen} onOpenChange={setQuoteChooserOpen}>
+        <DialogContent className="max-w-lg bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle>Коммерческие предложения</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {quoteChooserFiles.map((file) => (
+              <div
+                key={file.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/40 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {file.original_filename || `КП ${file.id}`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {fileSizeLabel(file.size_bytes)}
+                    {file.uploaded_at ? ` · ${formatDialogDate(file.uploaded_at)}` : ""}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => {
+                    const backendId = quoteChooserSupplier?.backend_result_id;
+                    if (!quoteChooserSupplier || !backendId || !onOpenQuoteFile) return;
+                    void onOpenQuoteFile(quoteChooserSupplier.id, backendId, file.id);
+                  }}
+                >
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                  Открыть
+                </Button>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={dialogOpen} onOpenChange={(next) => {
         setDialogOpen(next);
         if (!next) {

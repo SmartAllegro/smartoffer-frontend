@@ -174,6 +174,7 @@ export type HistoryDetailResult = {
   reply_status?: ReplyStatus | string;
   quote_source?: QuoteSource | string | null;
   quote_file_count?: number;
+  has_quote?: boolean;
 
   supplier_replies_count?: number;
   unread_supplier_replies_count?: number;
@@ -245,6 +246,7 @@ export type QuoteToggleResponse = {
   reply_status?: ReplyStatus | string;
   quote_source?: QuoteSource | string | null;
   quote_file_count?: number;
+  has_quote?: boolean;
   last_reply_at?: string | null;
 };
 
@@ -256,6 +258,7 @@ export type ReplyStatusUpdateResponse = {
   quote_received_at: string | null;
   quote_source?: QuoteSource | string | null;
   quote_file_count: number;
+  has_quote: boolean;
   last_reply_at?: string | null;
 };
 
@@ -268,6 +271,7 @@ export type QuoteFileDeleteResponse = {
   quote_received_at: string | null;
   reply_status: ReplyStatus | string;
   quote_source?: QuoteSource | string | null;
+  has_quote: boolean;
 };
 
 export type DealToggleResponse = {
