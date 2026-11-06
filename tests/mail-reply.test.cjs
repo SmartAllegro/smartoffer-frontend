@@ -231,11 +231,17 @@ test("dialog labels every document type and retains the Open action", async () =
   }
 });
 
-test("dialog card color depends only on author direction", async () => {
+test("dialog card colors follow backend semantics and priority", async () => {
   for (const [reply, expected, forbidden] of [
-    [{ ...supplierReply, direction: "user", status: "declined" }, "bg-emerald-500/5", "bg-blue-500/5"],
-    [{ ...supplierReply, direction: "supplier", status: "quote_received" }, "bg-blue-500/5", "bg-emerald-500/5"],
-    [{ ...supplierReply, direction: "supplier", status: "clarification_requested" }, "bg-blue-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, direction: "user", status: "declined" }, "bg-blue-500/5", "bg-red-500/5"],
+    [{ ...supplierReply, status: "declined", is_quote: true }, "bg-red-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, status: "quote_received", is_decline: true }, "bg-red-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, status: "quote_received" }, "bg-emerald-500/5", "bg-purple-500/5"],
+    [{ ...supplierReply, is_quote: true }, "bg-emerald-500/5", "bg-purple-500/5"],
+    [{ ...supplierReply, status: "clarification_requested" }, "bg-purple-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, status: "manual_review" }, "bg-purple-500/5", "bg-emerald-500/5"],
+    [supplierReply, "bg-purple-500/5", "bg-emerald-500/5"],
+    [{ ...supplierReply, source: "system", is_decline: true }, "bg-muted/20", "bg-red-500/5"],
     [{ ...supplierReply, direction: "system", source: "system", status: "quote_received" }, "bg-muted/20", "bg-blue-500/5"],
   ]) {
     const tree = await openDialog(createTableHarness({ replies: [reply] }));

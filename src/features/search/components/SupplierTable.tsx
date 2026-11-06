@@ -209,10 +209,15 @@ function replyCardClass(reply: SupplierReplyItem): string {
   }
 
   if (direction === "user") {
+    return "border-blue-500/30 bg-blue-500/5";
+  }
+  if (reply.status === "declined" || reply.is_decline) {
+    return "border-red-500/30 bg-red-500/5";
+  }
+  if (reply.status === "quote_received" || reply.is_quote) {
     return "border-emerald-500/30 bg-emerald-500/5";
   }
-
-  return "border-blue-500/30 bg-blue-500/5";
+  return "border-purple-500/30 bg-purple-500/5";
 }
 
 function fileSizeLabel(sizeBytes?: number | null): string {
