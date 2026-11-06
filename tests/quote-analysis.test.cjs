@@ -212,3 +212,44 @@ test("legal supplier name is primary; email and domain remain secondary", () => 
   assert.match(html, /<h3[^>]*>ООО &quot;Лунда&quot;<\/h3><p[^>]*>support@smartoffer\.pro<\/p>/);
   assert.doesNotMatch(html, /<h3[^>]*>smartoffer\.pro<\/h3>/);
 });
+
+for (const [source, total] of [["request_quantity_x_unit_price", "645000"],
+  ["explicit_quote_total", "290"], ["unavailable", null]]) {
+  test(`offer renders backend pricing: ${source}`, () => {
+    const response = { ok: true, analysis_id: 1, cached: true,
+      supplier_inn_update: { status: "unchanged" }, analysis: {
+        status: "analyzed", supplier_name: "Synthetic", supplier_inn: null,
+        supplier_inn_source_refs: [], evidence: [], total_amount: null, currency: "UNKNOWN",
+        vat_mode: "excluded", vat_rate_percent: null, payment_stages: [], payment_terms: null,
+        delivery_days_min: null, delivery_days_max: null, delivery_terms: null, delivery_included: null,
+        warranty_months: null, warranty_terms: null, valid_until: null, validity_terms: null,
+        summary: "Synthetic", items: [{ description: "PS5002", quantity: "1", unit: "шт.",
+          unit_price: "215000", total_price: null, currency: "RUB" }],
+      }, pricing: { effective_total_amount: total, currency: "RUB",
+        calculation_source: source === "request_quantity_x_unit_price" ? "sum_item_totals" : source,
+        items: [{ requested_quantity: "3", requested_unit: "шт", effective_total_price: total,
+          calculation_source: source }],
+      } };
+    const html = renderToStaticMarkup(React.createElement(panel.OfferCard, {
+      supplier: { supplier_name: "example.test" }, response, onSource: () => {},
+    })).replace(/\u00a0|\u202f/g, " ");
+    assert.ok(html.includes("Количество по запросу: 3 шт"));
+    assert.ok(html.includes("Цена за единицу: 215 000 ₽"));
+    assert.ok(html.includes("без НДС"));
+    const display = total === null ? "—" : total === "645000" ? "645 000" : "290";
+    assert.ok(html.includes(`Итого: ${display}`));
+    assert.match(html, new RegExp(`text-2xl[^>]*>${display}`));
+    assert.equal(html.includes("Рассчитано по количеству из запроса"), source === "request_quantity_x_unit_price");
+    if (source === "explicit_quote_total") assert.ok(!html.includes("Рассчитано"));
+  });
+}
+
+test("quote UI renders amounts without business multiplication", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/features/search/components/QuoteAnalysisPanel.tsx"), "utf8");
+  const tree = ts.createSourceFile("QuoteAnalysisPanel.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function visit(node) {
+    if (ts.isBinaryExpression(node)) assert.notEqual(node.operatorToken.kind, ts.SyntaxKind.AsteriskToken);
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+});

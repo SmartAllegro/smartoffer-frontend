@@ -3,6 +3,19 @@ import { apiFetch } from "./client";
 export type QuoteDecimal = number | string | null;
 export type QuoteConfidence = "high" | "medium" | "low";
 export type QuoteCurrency = "RUB" | "USD" | "EUR" | "CNY" | "OTHER" | "UNKNOWN";
+export interface QuoteItemPricing {
+  requested_quantity: QuoteDecimal; requested_unit: string | null; rfq_position: number | null;
+  unit_price: QuoteDecimal; explicit_total_price: QuoteDecimal;
+  calculated_total_price: QuoteDecimal; effective_total_price: QuoteDecimal;
+  calculation_source: "explicit_quote_total" | "request_quantity_x_unit_price" | "unavailable";
+}
+export interface QuotePricing {
+  version: string; rfq_email_job_id: number | null; rfq_fingerprint: string | null;
+  items: QuoteItemPricing[]; explicit_total_amount: QuoteDecimal;
+  calculated_total_amount: QuoteDecimal; effective_total_amount: QuoteDecimal;
+  calculation_source: "explicit_quote_total" | "sum_item_totals" | "unavailable";
+  currency: QuoteCurrency;
+}
 export interface QuoteOfferItem {
   description: string; manufacturer: string | null; model: string | null;
   quantity: QuoteDecimal; unit: string | null; unit_price: QuoteDecimal;
@@ -43,6 +56,7 @@ export interface QuoteAnalysisSuccess {
   ok: true; analysis_id: number; reply_id: number; result_id: number;
   provider: "deepseek"; model: string; prompt_version: string; cached: boolean;
   analysis: QuoteAnalysisData; warnings: string[]; supplier_inn_update: SupplierInnUpdate;
+  pricing?: QuotePricing;
 }
 export interface QuoteAnalysisFailure {
   ok: false; state?: "no_quote" | "cache_missing_or_stale" | "cache_invalid";

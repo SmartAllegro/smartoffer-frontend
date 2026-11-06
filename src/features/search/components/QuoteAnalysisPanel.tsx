@@ -50,6 +50,9 @@ export function OfferCard({ supplier, response, onSource }: {
   onSource: (id: number, ref: string, analysis: SourceAnalysis) => void;
 }) {
   const a = response.analysis;
+  const pricing = response.pricing;
+  const totalAmount = pricing ? pricing.effective_total_amount : a.total_amount;
+  const totalCurrency = pricing ? pricing.currency : a.currency;
   const allSourceRefs = [
     ...new Set([
       ...a.supplier_inn_source_refs,
@@ -59,7 +62,7 @@ export function OfferCard({ supplier, response, onSource }: {
   const primarySourceRef = allSourceRefs[0] || null;
   const vat = a.vat_mode === "included" ? `с НДС${a.vat_rate_percent !== null ? ` ${formatQuoteDecimal(a.vat_rate_percent)}%` : ""}` :
     a.vat_mode === "excluded" ? "без НДС" : a.vat_mode === "no_vat" ? "НДС не облагается" : "НДС не указан";
-  const currency = a.currency === "RUB" ? "₽" : a.currency === "UNKNOWN" ? "Валюта не указана" : a.currency === "OTHER" ? "Другая валюта" : a.currency;
+  const currency = totalCurrency === "RUB" ? "₽" : totalCurrency === "UNKNOWN" ? "Валюта не указана" : totalCurrency === "OTHER" ? "Другая валюта" : totalCurrency;
   const days = a.delivery_days_min !== null && a.delivery_days_max !== null ?
     `${a.delivery_days_min}${a.delivery_days_min !== a.delivery_days_max ? `–${a.delivery_days_max}` : ""} дней` :
     a.delivery_days_min !== null ? `От ${a.delivery_days_min} дней` : a.delivery_days_max !== null ? `До ${a.delivery_days_max} дней` : null;
@@ -98,7 +101,8 @@ export function OfferCard({ supplier, response, onSource }: {
       В КП найден ИНН {update.detected_inn}, сохранён ИНН {update.current_inn}</p>}
     {update.status === "ambiguous" && <p role="status" className="text-amber-100">В документе найдено несколько возможных ИНН поставщика</p>}
     {a.status === "insufficient_data" && <p className="text-slate-300">В КП недостаточно данных для структурированного анализа.</p>}
-    <div><div className="flex flex-wrap items-baseline gap-2"><span className="text-2xl font-semibold text-white">{formatQuoteDecimal(a.total_amount)} {a.total_amount !== null ? currency : ""}</span>
+    <div><div className="flex flex-wrap items-baseline gap-2"><span className="text-2xl font-semibold text-white">{formatQuoteDecimal(totalAmount)} {totalAmount !== null ? currency : ""}</span>
+      {pricing?.calculation_source === "sum_item_totals" && <span className="text-xs text-slate-400">Рассчитано по суммам позиций</span>}
       </div><p className="flex flex-wrap gap-2 text-slate-400">{vat} </p></div>
     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
       <div><h4 className="mb-2 font-medium text-slate-200">Оплата</h4>
@@ -125,9 +129,14 @@ export function OfferCard({ supplier, response, onSource }: {
       <summary className="cursor-pointer font-medium text-slate-200">Позиции КП ({a.items.length})</summary>
       <div className="mt-3 space-y-3">{a.items.map((item, i) => <div key={i} className="min-w-0 border-t border-white/10 pt-3">
         <p className="font-medium">{item.description}</p><p className="text-slate-400">{[item.manufacturer, item.model].filter(Boolean).join(" · ")}</p>
-        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-slate-300"><span>Количество: {formatQuoteDecimal(item.quantity)} {item.unit}</span>
-          <span>Цена: {formatQuoteDecimal(item.unit_price)} {item.currency !== "UNKNOWN" ? item.currency : ""}</span>
-          <span>Итого: {formatQuoteDecimal(item.total_price)} {item.currency !== "UNKNOWN" ? item.currency : ""}</span></div>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-slate-300">
+          {pricing?.items[i]?.requested_quantity != null
+            ? <span>Количество по запросу: {formatQuoteDecimal(pricing.items[i].requested_quantity)} {pricing.items[i].requested_unit}</span>
+            : <span>Количество: {formatQuoteDecimal(item.quantity)} {item.unit}</span>}
+          <span>Цена за единицу: {formatQuoteDecimal(item.unit_price)} {quoteCurrencyLabel(item.currency)}</span>
+          <span>Итого: {formatQuoteDecimal(pricing?.items[i] ? pricing.items[i].effective_total_price : item.total_price)} {quoteCurrencyLabel(item.currency)}</span></div>
+        {pricing?.items[i]?.calculation_source === "request_quantity_x_unit_price" &&
+          <p className="mt-1 text-xs text-slate-400">Рассчитано по количеству из запроса</p>}
       </div>)}</div>
     </details>}
   </article>;
