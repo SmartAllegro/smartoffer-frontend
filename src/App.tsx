@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { bootstrapAuth } from "@/api/auth";
-import { getAuthContextKey, getAuthToken, subscribeAuth } from "@/shared/utils/auth";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { bootstrapAuth, getCachedUserMe, type UserMe } from "@/api/auth";
+import { getAuthContextKey, subscribeAuth } from "@/shared/utils/auth";
 import { Toaster } from "@/shared/ui/toaster";
 import { Toaster as Sonner } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
@@ -30,6 +30,11 @@ import { trackPageView } from "@/api/tracking";
 
 const queryClient = new QueryClient();
 
+type AuthBootstrapState =
+  | { status: "checking" }
+  | { status: "ready"; generation: number; user: UserMe | null }
+  | { status: "unavailable" };
+
 function PageViewTracker() {
   const location = useLocation();
 
@@ -47,18 +52,45 @@ function PageViewTracker() {
 }
 
 const App = () => {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void bootstrapAuth().finally(() => { if (active) setReady(true); });
-    let generation = getAuthContextKey();
-    const unsubscribe = subscribeAuth(() => {
-      if (!getAuthToken() || generation !== getAuthContextKey()) queryClient.clear();
-      generation = getAuthContextKey();
-    });
-    return () => { active = false; unsubscribe(); };
+  const [bootstrap, setBootstrap] = useState<AuthBootstrapState>({ status: "checking" });
+  const bootstrapRun = useRef(0);
+  const authGeneration = useSyncExternalStore(subscribeAuth, getAuthContextKey);
+
+  const runBootstrap = useCallback(() => {
+    const run = ++bootstrapRun.current;
+    setBootstrap({ status: "checking" });
+    void bootstrapAuth().then(
+      user => {
+        if (bootstrapRun.current === run) {
+          setBootstrap({ status: "ready", generation: getAuthContextKey(), user });
+        }
+      },
+      () => {
+        if (bootstrapRun.current === run) setBootstrap({ status: "unavailable" });
+      },
+    );
   }, []);
-  if (!ready) return <div role="status" className="p-8 text-center">Загрузка…</div>;
+
+  useEffect(() => {
+    runBootstrap();
+    return () => { bootstrapRun.current += 1; };
+  }, [runBootstrap]);
+
+  useEffect(() => { queryClient.clear(); }, [authGeneration]);
+
+  if (bootstrap.status === "checking") {
+    return <div role="status" className="p-8 text-center">Проверяем авторизацию…</div>;
+  }
+  if (bootstrap.status === "unavailable") {
+    return (
+      <main className="mx-auto max-w-lg p-8 text-center">
+        <h1 className="text-xl font-semibold">Авторизация временно недоступна</h1>
+        <p className="mt-3 text-muted-foreground">Не удалось проверить текущую сессию. Это не означает, что вы вышли.</p>
+        <button type="button" className="mt-5 rounded-md border px-4 py-2" onClick={runBootstrap}>Повторить</button>
+      </main>
+    );
+  }
+  const initialUser = bootstrap.generation === authGeneration ? bootstrap.user : getCachedUserMe();
   return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -68,7 +100,7 @@ const App = () => {
         <PageViewTracker />
 
         <Routes>
-          <Route path="/" element={<Index />} />
+          <Route path="/" element={<Index initialUser={initialUser} />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/requests/:jobId" element={<RequestDetailPage />} />

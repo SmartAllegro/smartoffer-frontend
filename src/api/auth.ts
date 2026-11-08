@@ -1,12 +1,26 @@
-import { apiFetch, mutateSession, refreshAccessToken } from "./client";
-import { clearAuthToken, removeLegacyAuthToken, setAuthToken } from "@/shared/utils/auth";
+import { ApiError, apiFetch, mutateSession, refreshAccessToken } from "./client";
+import {
+  clearAuthToken,
+  getAuthContextKey,
+  getAuthToken,
+  removeLegacyAuthToken,
+  setAuthToken,
+} from "@/shared/utils/auth";
 
 export type UserMe = {
   id: number;
   email: string;
   first_name?: string | null;
   last_name?: string | null;
+  is_admin: boolean;
 };
+
+let cachedMe: { generation: number; user: UserMe } | null = null;
+
+export function getCachedUserMe(): UserMe | null {
+  if (!getAuthToken() || cachedMe?.generation !== getAuthContextKey()) return null;
+  return cachedMe.user;
+}
 
 export type ForgotPasswordResponse = {
   ok: boolean;
@@ -73,7 +87,10 @@ export async function confirmPasswordReset(payload: {
 }
 
 export async function fetchMe(): Promise<UserMe> {
-  return apiFetch<UserMe>("/auth/me", { method: "GET" });
+  const generation = getAuthContextKey();
+  const user = await apiFetch<UserMe>("/auth/me", { method: "GET" });
+  if (generation === getAuthContextKey() && getAuthToken()) cachedMe = { generation, user };
+  return user;
 }
 
 export async function deleteCurrentUser(payload: {
@@ -96,10 +113,18 @@ export async function logoutUser(): Promise<void> {
 let bootstrapPromise: Promise<UserMe | null> | null = null;
 export function bootstrapAuth(): Promise<UserMe | null> {
   removeLegacyAuthToken();
-  if (!bootstrapPromise) bootstrapPromise = (async () => {
+  if (bootstrapPromise) return bootstrapPromise;
+  const task = (async () => {
     if (!await refreshAccessToken()) return null;
-    try { return await fetchMe(); }
-    catch { clearAuthToken(); return null; }
+    try {
+      return await fetchMe();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401 && !getAuthToken()) return null;
+      throw error;
+    }
   })();
-  return bootstrapPromise;
+  bootstrapPromise = task;
+  const release = () => { if (bootstrapPromise === task) bootstrapPromise = null; };
+  void task.then(release, release);
+  return task;
 }

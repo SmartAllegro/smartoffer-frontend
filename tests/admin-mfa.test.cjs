@@ -144,13 +144,16 @@ test("admin API signals MFA only on 428; never replays mutation", async()=>{
   await assert.rejects(api.restoreAdminUser(7)); assert.equal(h.calls.length,2);
 });
 
-test("no SMS secrets in frontend sources and navigation is pre-MFA", ()=>{
+test("no SMS secrets in frontend sources and admin MFA is scoped to AdminPage", ()=>{
   const walk=dir=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);
   for(const file of walk(path.join(__dirname,"../src"))) {
     const source=fs.readFileSync(file,"utf8");
     assert.doesNotMatch(source,/SMSAERO_[A-Z_]+|ADMIN_MFA_CODE_SECRET/);
   }
-  assert.match(read("src/pages/Index.tsx"),/queryFn: getAdminMfaStatus/);
+  const index = read("src/pages/Index.tsx");
+  assert.doesNotMatch(index,/getAdminMfaStatus|adminNavQuery|\/admin\/mfa\/status/);
+  assert.match(index,/me\?\.is_admin === true/);
+  assert.match(read("src/pages/AdminPage.tsx"),/queryFn: getAdminMfaStatus/);
 });
 
 function mobileHarness(overrides={}) {

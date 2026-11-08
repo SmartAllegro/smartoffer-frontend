@@ -59,7 +59,9 @@ test("bootstrap single flight restores via cookie then /me before rendering", as
   assert.deepEqual(h.calls.map(c=>new URL(c.url).pathname),["/auth/refresh","/auth/me"]);
   assert.equal(h.calls[0].options.credentials,"include");
   assert.equal(h.calls[1].options.headers.get("Authorization"),"Bearer restored");
-  assert.match(read("src/App.tsx"),/if \(!ready\) return/);
+  assert.equal(h.api.getCachedUserMe().id,7);
+  assert.match(read("src/App.tsx"),/<Index initialUser=\{initialUser\}/);
+  assert.match(read("src/pages/Index.tsx"),/mountedUser \?\? await fetchMe\(\)/);
 });
 
 test("missing refresh cookie leaves bootstrap logged out", async () => {
@@ -141,11 +143,60 @@ test("late old-token 401 reuses completed refresh",async()=>{
   assert.equal(h.calls.filter(c=>c.url.endsWith("/refresh")).length,1);
 });
 
-test("refresh failure clears memory and notifies UI; no original replay",async()=>{
+test("confirmed refresh 401 clears memory and notifies UI; no original replay",async()=>{
   const h=harness(async()=>denied()); h.auth.setAuthToken("old"); let cleared=false;
   h.auth.subscribeAuth(()=>{if(!h.auth.getAuthToken())cleared=true;});
   await assert.rejects(h.client.apiFetch("/protected"));
   assert.equal(h.calls.length,2); assert.equal(h.auth.getAuthToken(),null); assert.ok(cleared);
+});
+
+test("transient refresh failures preserve token and auth generation", async()=>{
+  for (const failure of [
+    () => { throw new Error("network"); },
+    () => json({detail:"temporary"},503),
+    () => json({detail:"rate_limited"},429),
+  ]) {
+    const h=harness(async()=>failure());
+    h.auth.setAuthToken("current-session");
+    const generation=h.auth.getAuthContextKey();
+    await assert.rejects(h.client.refreshAccessToken(), error => error.name === "AuthRefreshUnavailableError");
+    assert.equal(h.auth.getAuthToken(),"current-session");
+    assert.equal(h.auth.getAuthContextKey(),generation);
+  }
+});
+
+test("transient bootstrap /me failure is retryable and never becomes anonymous", async()=>{
+  let meAttempts=0;
+  const h=harness(async url => {
+    if (url.endsWith("/refresh")) return json({access_token:`restored-${meAttempts}`});
+    meAttempts += 1;
+    return meAttempts === 1 ? json({detail:"temporary"},503) : json({id:7,is_admin:false});
+  });
+  await assert.rejects(h.api.bootstrapAuth(), error => error.status === 503);
+  assert.ok(h.auth.getAuthToken());
+  const user=await h.api.bootstrapAuth();
+  assert.equal(user.id,7);
+  assert.deepEqual(h.calls.map(c=>new URL(c.url).pathname),[
+    "/auth/refresh","/auth/me","/auth/refresh","/auth/me",
+  ]);
+});
+
+test("bootstrap preserves auth when /me 401 recovery refresh is transient", async()=>{
+  let refreshAttempts=0;
+  const h=harness(async url => {
+    if (url.endsWith("/refresh")) {
+      refreshAttempts += 1;
+      return refreshAttempts === 1 ? json({access_token:"restored"}) : json({detail:"temporary"},503);
+    }
+    return denied();
+  });
+  const generation=h.auth.getAuthContextKey();
+  await assert.rejects(h.api.bootstrapAuth(), error => error.status === 401);
+  assert.equal(h.auth.getAuthToken(),"restored");
+  assert.equal(h.auth.getAuthContextKey(),generation);
+  assert.deepEqual(h.calls.map(c=>new URL(c.url).pathname),[
+    "/auth/refresh","/auth/me","/auth/refresh",
+  ]);
 });
 
 test("a second auth 401 cannot loop",async()=>{
@@ -160,7 +211,8 @@ test("multi-tab rotation conflict retries shared cookie with bounded attempts",a
   assert.equal(await h.client.refreshAccessToken(),true); assert.equal(attempts,2);
   assert.ok(h.calls.every(c=>c.options.credentials==="include"));
   const failure=harness(async()=>json({detail:"refresh_already_rotated"},409));
-  assert.equal(await failure.client.refreshAccessToken(),false); assert.equal(failure.calls.length,4);
+  await assert.rejects(failure.client.refreshAccessToken(), error => error.status === 409);
+  assert.equal(failure.calls.length,4);
 });
 
 test("in-flight refresh cannot resurrect cleared or replaced auth",async()=>{

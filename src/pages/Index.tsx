@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useQuery } from "@tanstack/react-query";
 import { StatusBadge } from '@/features/search/components/StatusBadge';
 import { InputBlock } from '@/features/search/components/InputBlock';
 import { SupplierTable } from '@/features/search/components/SupplierTable';
@@ -30,9 +29,8 @@ import {
   type EquipmentAnalysisData,
 } from "@/api/ai";
 import { AuthModal } from "@/features/auth/components/AuthModal";
-import { fetchMe, type UserMe } from "@/api/auth";
-import { getAdminMfaStatus } from "@/api/admin";
-import { clearAuthToken, getAuthContextKey, getAuthToken, subscribeAuth } from "@/shared/utils/auth";
+import { fetchMe, getCachedUserMe, type UserMe } from "@/api/auth";
+import { getAuthContextKey, getAuthToken, subscribeAuth } from "@/shared/utils/auth";
 import { logoutUser } from "@/api/auth";
 
 import { sendRFQ } from "@/api/mail";
@@ -169,7 +167,9 @@ function MainEquipmentAiPanel({
     </section>
   );
 }
-export default function Index() {
+type IndexProps = { initialUser?: UserMe | null };
+
+export default function Index({ initialUser }: IndexProps = {}) {
   const [equipmentName, setEquipmentName] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [rfqText, setRfqText] = useState('');
@@ -195,7 +195,8 @@ export default function Index() {
   const { addRequest, updateRequest } = useRequestHistory();
 
   const [authOpen, setAuthOpen] = useState(false);
-  const [me, setMe] = useState<UserMe | null>(null);
+  const mountedUser = initialUser ?? getCachedUserMe?.() ?? null;
+  const [me, setMe] = useState<UserMe | null>(() => mountedUser);
   
   const [billing, setBilling] = useState<BillingMe | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -203,13 +204,6 @@ export default function Index() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   const [searchMode, setSearchMode] = useState<SearchMode>("cis");
-
-  const adminNavQuery = useQuery({
-    queryKey: ["admin", "mfa", "nav", me?.id],
-    queryFn: getAdminMfaStatus,
-    retry: false,
-    enabled: !!me && !!getAuthToken(),
-  });
 
   const canUseInternationalSearch = useMemo(() => {
   const planCode = billing?.current_plan_code || "";
@@ -305,7 +299,7 @@ useEffect(() => {
     (async () => {
       try {
         setBillingLoading(true);
-        const user = await fetchMe();
+        const user = mountedUser ?? await fetchMe();
         if (!isCurrent()) return;
 
         setMe(user);
@@ -326,7 +320,6 @@ useEffect(() => {
         }
       } catch {
         if (isCurrent()) {
-          clearAuthToken();
           setMe(null);
           setBilling(null);
           setBillingLoading(false);
@@ -997,7 +990,7 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {me && adminNavQuery.isSuccess && adminNavQuery.data ? (
+                {me?.is_admin === true ? (
                   <Button
                     type="button"
                     variant="outline"
