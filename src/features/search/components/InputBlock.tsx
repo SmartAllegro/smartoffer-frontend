@@ -19,7 +19,7 @@ interface InputBlockProps {
   onSend: () => void;
  }
 
-const MAX_CHARS = 3000;
+const MAX_CHARS = 5000;
 
 export function InputBlock({
   equipmentName,

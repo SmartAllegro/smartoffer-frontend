@@ -1030,7 +1030,6 @@ const loadDeliveryItems = useCallback(async () => {
   const loadFirstPage = useCallback(async () => {
     const request = ++listRequest.current;
     setLoadingFirst(true);
-    setItems([]);
     setOffset(0);
     setHasMore(true);
 
@@ -1863,10 +1862,6 @@ const handleUploadQuoteFile = useCallback(
                   key={p.value}
                   type="button"
                   onClick={() => {
-                    setItems([]);
-                    setTotal(0);
-                    setOffset(0);
-                    setHasMore(true);
                     setPeriod(p.value);
                   }} 
                   className={cn(
