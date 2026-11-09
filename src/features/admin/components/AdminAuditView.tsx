@@ -1,3 +1,4 @@
+import { AdminOperationsView } from "./AdminOperationsView";
 import { useEffect, useState } from "react";
 import { FileText, LockKeyhole, ShieldCheck, Users } from "lucide-react";
 import { AdminKpi, AdminPanel, NoData } from "./AdminPanels";
@@ -14,7 +15,7 @@ const actions: Record<string, string> = {
 };
 const outcomes: Record<string, string> = {success: "Успех", failure: "Ошибка", denied: "Отказ"};
 
-export function AdminAuditView() {
+export function AdminActionsAuditView() {
   const [filters, setFilters] = useState<AdminAuditFilters>({period: "30d"});
   const [offset, setOffset] = useState(0);
   const [reload, setReload] = useState(0);
@@ -91,4 +92,16 @@ export function AdminAuditView() {
       {!!data?.security.items.length && <p className="p-3 text-xs">Последние 10 событий категорий «Авторизация» и «Безопасность». Все записи доступны в журнале.</p>}
     </AdminPanel></div>
   </div></main>;
+}
+
+
+export function AdminAuditView() {
+  const [tab, setTab] = useState("production");
+  return <div className="flex min-h-0 flex-1 flex-col">
+    <div role="tablist" aria-label="Источник аудита" className="flex flex-wrap gap-2 border-b border-slate-800 px-4 py-3">
+      <button role="tab" aria-selected={tab === "production"} className="rounded border border-slate-700 px-4 py-2 aria-selected:bg-slate-800" onClick={() => setTab("production")}>Production</button>
+      <button role="tab" aria-selected={tab === "admin"} className="rounded border border-slate-700 px-4 py-2 aria-selected:bg-slate-800" onClick={() => setTab("admin")}>Действия администраторов</button>
+    </div>
+    {tab === "production" ? <AdminOperationsView /> : <AdminActionsAuditView />}
+  </div>;
 }

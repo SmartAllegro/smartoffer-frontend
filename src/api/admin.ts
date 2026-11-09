@@ -400,3 +400,16 @@ export function getAdminAuditEvents(filters: AdminAuditFilters, offset = 0, limi
 export function getAdminAuditEvent(id: string) {
   return adminFetch<AdminAuditEvent>(`/admin/audit/events/${encodeURIComponent(id)}`);
 }
+
+
+export type OperationalEvent = {event_id:string; occurred_at:string; resolved_at:string|null;
+  source:string; category:string; event_type:string; severity:string; outcome:string; component:string|null;
+  correlation_id:string|null; release_tag:string|null; backend_commit:string|null; frontend_commit:string|null;
+  details:{changes?:string[];from_revision?:string;to_revision?:string;reason_code?:string;opened_at?:string};
+  recovery?:OperationalEvent|null};
+export type OperationalFilters = {period:string;source?:string;category?:string;event_type?:string;severity?:string;outcome?:string;component?:string};
+export type OperationalPage = {items:OperationalEvent[];total:number;limit:number;offset:number};
+export type OperationalSummary = {total:number;failures:number;recoveries:number;releases:number;source:{state:string;observed_at:string|null}};
+export const getOperationsSummary = (f:OperationalFilters) => adminFetch<OperationalSummary>(withSearchParams("/admin/operations/summary",f));
+export const getOperationsEvents = (f:OperationalFilters,offset=0) => adminFetch<OperationalPage>(withSearchParams("/admin/operations/events",{...f,offset,limit:20}));
+export const getOperationsEvent = (id:string) => adminFetch<OperationalEvent>(`/admin/operations/events/${encodeURIComponent(id)}`);

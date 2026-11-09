@@ -25,7 +25,7 @@ function harness({empty=false, fail=false}={}) {
       return new Proxy({}, {get:(_,k)=>String(k)});
     }
   });
-  const render=()=>{cursor=0;const tree=module.exports.AdminAuditView();const pending=effects;effects=[];pending.forEach(f=>f());return tree;};
+  const render=()=>{cursor=0;const tree=module.exports.AdminActionsAuditView();const pending=effects;effects=[];pending.forEach(f=>f());return tree;};
   const nodes=root=>{const out=[];function walk(n){if(!n||typeof n!=="object")return;if(Array.isArray(n))return n.forEach(walk);out.push(n);walk(n.props?.children);}walk(root);return out;};
   return {render,nodes,calls,settle:async()=>{await new Promise(r=>setImmediate(r));return render();}};
 }
