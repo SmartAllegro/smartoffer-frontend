@@ -109,16 +109,6 @@ export type AdminMonitorSummaryResponse = {generated_at:string; components:Admin
 export const getAdminMonitoringSummary = (signal?:AbortSignal) =>
   adminFetch<AdminMonitorSummaryResponse>("/admin/monitoring/summary", {signal});
 
-/** B3A contract only. No history endpoint exists until durable storage is approved. */
-export type AdminAuditCategory = "admin_action" | "authentication" | "security" | "system" | "payment" | "mail_sync";
-export type AdminAuditEvent = {event_id:string; occurred_at:string; category:AdminAuditCategory;
-  event_type:string; severity:"info" | "warning" | "critical"; actor_id:number|"system"|null;
-  target_type:"user" | "admin_session" | "service" | "payment" | "mail_sync" | null; target_id:number|null;
-  outcome:"success" | "failure" | "denied"; request_id:string|null;
-  details:{plan_code?:string;reset_usage?:boolean;reason?:string}};
-export type AdminAuditPage = {items:AdminAuditEvent[];total:number;limit:number;offset:number;
-  generated_at:string};
-
 export type AdminBillingSummary = {
   plan_code: string | null;
   plan_name: string | null;
@@ -388,4 +378,25 @@ export function restoreAdminUser(userId: number) {
   return adminFetch<AdminUserMutationResponse>(`/admin/users/${userId}/restore`, {
     method: "POST",
   });
+}
+
+
+export type AdminAuditEvent = {
+  event_id: string; occurred_at: string; category: string; event_type: string;
+  severity: string; actor_id: number | "system" | null; target_type: string | null;
+  target_id: number | null; outcome: string; request_id: string | null;
+  details: {plan_code?: string; reset_usage?: boolean; reason?: string};
+};
+export type AdminAuditFilters = {period: string; actor_id?: string; category?: string;
+  event_type?: string; outcome?: string; severity?: string; security_only?: boolean};
+export type AdminAuditPage = {items: AdminAuditEvent[]; total: number; limit: number; offset: number};
+export type AdminAuditSummary = {total: number; successful: number; denied: number; mfa: number};
+export function getAdminAuditSummary(filters: AdminAuditFilters) {
+  return adminFetch<AdminAuditSummary>(withSearchParams("/admin/audit/summary", filters));
+}
+export function getAdminAuditEvents(filters: AdminAuditFilters, offset = 0, limit = 20) {
+  return adminFetch<AdminAuditPage>(withSearchParams("/admin/audit/events", {...filters, offset, limit}));
+}
+export function getAdminAuditEvent(id: string) {
+  return adminFetch<AdminAuditEvent>(`/admin/audit/events/${encodeURIComponent(id)}`);
 }
